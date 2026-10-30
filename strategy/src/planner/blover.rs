@@ -86,7 +86,7 @@ impl Planner {
                     && z.row() == 0
                     && z.kind() == Z::Football
                     && z.from_wave() + 1 == birth
-                    && (80..=120).contains(&(z.x() as i32))
+                    && (80..=83).contains(&(z.x() as i32))
             })
         })
     }
@@ -231,7 +231,10 @@ impl Planner {
                         pad.lifetime = self.blover_lifetime(target, f, (1, 2), 200);
                         if pad.lifetime >= 50 {
                             self.blover_reserved_birth = Some(target.wave);
-                            if prediction::contact(target, target.x, pad.rect()) {
+                            // Wake at 1cs resolution near the left contact edge,
+                            // rather than starting the giant's hammer at first contact.
+                            // Urgent visible balloons still use the existing immediate cast.
+                            if prediction::contact(target, target.x, pad.rect()) && (insurance || target.x <= 83.) {
                                 let before = self.assessment(target, f);
                                 let after = run(target, &self.scene, f, Some(pad));
                                 self.record_choice(target, before, after, pad.pos, Blover, f);

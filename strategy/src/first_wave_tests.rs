@@ -513,3 +513,31 @@ fn catapult_bait_stops_one_cycle_even_if_target_is_removed() {
         );
     });
 }
+
+#[test]
+fn football_late_blover_contact_matches_native_edges() {
+    for (col, x, eats) in [(2, 83., true), (2, 78., false), (1, 3., true), (1, -2., false)] {
+        let mut world = PeWorldOwner::new_reset(PeWorldConfig {
+            scene: pe_rs::SceneType::Fog,
+            ..Default::default()
+        })
+        .unwrap()
+        .install_current()
+        .unwrap();
+        world.with_backend(|b| {
+            b.set_zombie_spawn_stopped(true).unwrap();
+            let z = b.place_zombie(Z::Football, grid((1, 6))).unwrap();
+            b.set_zombie_x(z, rsvz::core::model::I32RepresentableF32::new(x).unwrap())
+                .unwrap();
+            b.new_plant(sel(Blover).checked().unwrap(), grid((1, col))).unwrap();
+        });
+        // Native walking bite acquisition runs every four frames.
+        for _ in 0..4 {
+            world.update_world().unwrap();
+        }
+        world.with_backend(|b| {
+            let z = b.zombies().unwrap().next().unwrap();
+            assert_eq!(b.zombie_is_eating(z), eats, "column={col}, x={x}");
+        });
+    }
+}
