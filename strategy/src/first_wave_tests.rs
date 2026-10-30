@@ -580,3 +580,173 @@ fn late_blover_margin_native_phase_sweep() {
     }
     assert!(misses.is_empty(), "missed contact cases: {:?}", misses);
 }
+
+#[test]
+fn exact_blover_window_matches_native_and_one_frame_later_misses() {
+    use prediction::football_contact::{Window, window};
+    for col in [1, 2] {
+        for chilled in [false, true] {
+            for delay in [0, 1] {
+                for start in (230..290).step_by(3) {
+                    let mut world = PeWorldOwner::new_reset(PeWorldConfig {
+                        scene: pe_rs::SceneType::Fog,
+                        ..Default::default()
+                    })
+                    .unwrap()
+                    .install_current()
+                    .unwrap();
+                    world.with_backend(|b| {
+                        b.set_zombie_spawn_stopped(true).unwrap();
+                        let z = b.place_zombie(Z::Football, grid((1, 6))).unwrap();
+                        b.set_zombie_x(z, rsvz::core::model::I32RepresentableF32::new(start as f32).unwrap())
+                            .unwrap();
+                        if chilled {
+                            b.new_plant(sel(IceShroom).checked().unwrap(), grid((5, 1))).unwrap();
+                        }
+                    });
+                    let mut reached = false;
+                    for _ in 0..3000 {
+                        let due = world.with_backend(|b| {
+                            PeBackend::scope_backend(b, || {
+                                rsvz::with_frame(|f| {
+                                    let z = f.zombies().next().unwrap();
+                                    !z.is_frozen()
+                                        && z.x() < (col * 80 - 60) as f32
+                                        && window(&z.motion_state().unwrap(), z.age(), col, 16, None).unwrap()
+                                            == Window::LastCheckIn(1)
+                                })
+                            })
+                        });
+                        if due {
+                            reached = true;
+                            break;
+                        }
+                        world.update_world().unwrap();
+                    }
+                    assert!(reached, "no window col={col} cold={chilled} start={start}");
+                    for _ in 0..delay {
+                        world.update_world().unwrap();
+                    }
+                    world.with_backend(|b| {
+                        b.new_plant(sel(Blover).checked().unwrap(), grid((1, col))).unwrap();
+                    });
+                    let mut caught = false;
+                    for _ in 0..8 {
+                        world.update_world().unwrap();
+                        caught |= world.with_backend(|b| b.zombie_is_eating(b.zombies().unwrap().next().unwrap()));
+                    }
+                    assert_eq!(
+                        caught,
+                        delay == 0,
+                        "col={col} cold={chilled} start={start} delay={delay}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn exact_blover_window_tracks_chill_expiry_and_incoming_ice() {
+    use prediction::football_contact::{Window, window};
+    for col in [1, 2] {
+        for remaining in 1..=8 {
+            for delay in [0, 1] {
+                let mut world = PeWorldOwner::new_reset(PeWorldConfig {
+                    scene: pe_rs::SceneType::Fog,
+                    ..Default::default()
+                })
+                .unwrap()
+                .install_current()
+                .unwrap();
+                world.with_backend(|b| {
+                    b.set_zombie_spawn_stopped(true).unwrap();
+                    let z = b.place_zombie(Z::Football, grid((1, 6))).unwrap();
+                    b.set_zombie_x(z, rsvz::core::model::I32RepresentableF32::new(2000.).unwrap())
+                        .unwrap();
+                    b.new_plant(sel(IceShroom).checked().unwrap(), grid((5, 1))).unwrap();
+                });
+                for _ in 0..2200 {
+                    world.update_world().unwrap();
+                    if world.with_backend(|b| b.zombie_chilled_countdown(b.zombies().unwrap().next().unwrap()))
+                        == remaining
+                    {
+                        break;
+                    }
+                }
+                world.with_backend(|b| {
+                    let z = b.zombies().unwrap().next().unwrap();
+                    assert_eq!(b.zombie_chilled_countdown(z), remaining);
+                    b.set_zombie_x(
+                        z,
+                        rsvz::core::model::I32RepresentableF32::new((col * 80 - 80 + 6) as f32).unwrap(),
+                    )
+                    .unwrap();
+                });
+                let mut reached = false;
+                for _ in 0..40 {
+                    let due = world.with_backend(|b| {
+                        PeBackend::scope_backend(b, || {
+                            rsvz::with_frame(|f| {
+                                let z = f.zombies().next().unwrap();
+                                window(&z.motion_state().unwrap(), z.age(), col, 16, None).unwrap()
+                                    == Window::LastCheckIn(1)
+                            })
+                        })
+                    });
+                    if due {
+                        reached = true;
+                        break;
+                    }
+                    world.update_world().unwrap();
+                }
+                assert!(reached);
+                for _ in 0..delay {
+                    world.update_world().unwrap();
+                }
+                world.with_backend(|b| {
+                    b.new_plant(sel(Blover).checked().unwrap(), grid((1, col))).unwrap();
+                });
+                let mut caught = false;
+                for _ in 0..8 {
+                    world.update_world().unwrap();
+                    caught |= world.with_backend(|b| b.zombie_is_eating(b.zombies().unwrap().next().unwrap()));
+                }
+                assert_eq!(caught, delay == 0, "col={col} remaining={remaining} delay={delay}");
+            }
+        }
+    }
+    let mut world = PeWorldOwner::new_reset(PeWorldConfig {
+        scene: pe_rs::SceneType::Fog,
+        ..Default::default()
+    })
+    .unwrap()
+    .install_current()
+    .unwrap();
+    world.with_backend(|b| {
+        b.set_zombie_spawn_stopped(true).unwrap();
+        b.place_zombie(Z::Football, grid((1, 6))).unwrap();
+        b.new_plant(sel(IceShroom).checked().unwrap(), grid((5, 1))).unwrap();
+    });
+    for _ in 0..95 {
+        world.update_world().unwrap();
+    }
+    world.with_backend(|b| {
+        let z = b.zombies().unwrap().next().unwrap();
+        b.set_zombie_x(z, rsvz::core::model::I32RepresentableF32::new(88.).unwrap())
+            .unwrap();
+        PeBackend::scope_backend(b, || {
+            rsvz::with_frame(|f| {
+                let z = f.zombies().next().unwrap();
+                assert_eq!(
+                    window(&z.motion_state().unwrap(), z.age(), 2, 16, Some(5)).unwrap(),
+                    Window::Open
+                );
+            })
+        });
+    });
+    for _ in 0..5 {
+        world.update_world().unwrap();
+    }
+    assert!(world.with_backend(|b| b.zombie_frozen_countdown(b.zombies().unwrap().next().unwrap()) > 0));
+}
