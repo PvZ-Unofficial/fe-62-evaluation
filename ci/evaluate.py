@@ -37,6 +37,9 @@ def request(path):
 
 def build(args):
     req = request(args.request)
+    snapshot = read(ROOT / "SNAPSHOT.json")
+    if req["strategy_commit"] != snapshot["strategy"]["source_commit"]:
+        raise ValueError("request belongs to another strategy revision; allocate a fresh seed batch")
     bundle = ROOT / "bundle"
     bundle.mkdir(exist_ok=False)
     started = time.monotonic()
@@ -61,7 +64,7 @@ def build(args):
     save(bundle / "parameters.json", read(ROOT / "ci/parameters.json"))
     save(bundle / "build.json", {
         "commit": os.environ.get("GITHUB_SHA", subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()),
-        "snapshot": read(ROOT / "SNAPSHOT.json"),
+        "snapshot": snapshot,
         "runner_sha256": digest(bundle / "runner.exe"),
         "seconds": time.monotonic() - started,
         "files": {f.name: digest(f) for f in bundle.iterdir() if f.is_file()},
