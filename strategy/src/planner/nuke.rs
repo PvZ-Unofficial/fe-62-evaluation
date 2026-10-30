@@ -39,6 +39,38 @@ fn contribution(pos: Pos, z: Zombie, out: Outcome, at: i32) -> i64 {
 }
 
 impl Planner {
+    pub(super) fn keep_nuke_dependency(&mut self, z: Zombie, out: Outcome, f: &Forecast) {
+        if z.kind != Z::GigaGargantuar
+            || z.x > 500.
+            || !out.safe()
+            || out.death == NEVER
+            || self.nuke_debts.iter().any(|(id, _)| *id == z.id)
+        {
+            return;
+        }
+        let Some(index) = f.events.iter().enumerate().find_map(|(i, e)| {
+            (e.kind == prediction::EffectKind::Doom && !e.certain && out.ash_mask & (1 << i) != 0).then_some(i)
+        }) else {
+            return;
+        };
+        let without = Forecast {
+            events: f
+                .events
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| *i != index)
+                .map(|(_, e)| *e)
+                .collect(),
+        };
+        let independent = run(z, &self.scene, &without, None);
+        if !independent.safe() {
+            self.nuke_debts.push((z.id, telemetry::damage_history(z.id).0));
+            telemetry::record(
+                "nuke_damage_dependency",
+                &[z.id.raw() as i64, f.events[index].at as i64],
+            );
+        }
+    }
     pub fn save_retention(&self) -> Snapshot {
         Snapshot {
             hold: self.nuke_hold,
@@ -90,6 +122,9 @@ impl Planner {
         })
     }
     pub fn nuke_position(&mut self, f: &Forecast, at: i32, preferred: Pos, exclude47: bool) -> Pos {
+        self.nuke_debts.retain(|(id, hits)| {
+            self.scene.zombies.iter().any(|z| z.id == *id) && telemetry::damage_history(*id).0 <= *hits
+        });
         self.nuke_exclude47 = exclude47;
         let positions = [preferred, (3, 7), (4, 7), (3, 8), (4, 8), (3, 9), (4, 9)];
         let legal: Vec<_> = positions
@@ -117,6 +152,7 @@ impl Planner {
                 .collect(),
         };
         let mut score = vec![0i64; legal.len()];
+        let mut protected = vec![0usize; legal.len()];
         for &z in &self.scene.zombies {
             if !(z.giant() || z.kind == Z::Football || z.kind == Z::Zomboni) {
                 continue;
@@ -137,12 +173,13 @@ impl Planner {
                 let shape = grid_explosion_shape(GridExplosionKind::DoomShroom, grid(pos));
                 if (z.row - pos.0).abs() <= shape.row_range && circle_hits_rect(shape.circle, z.rect_at(out.x_at_end)) {
                     score[i] += value * (600 + left);
+                    protected[i] += usize::from(self.nuke_debts.iter().any(|(id, _)| *id == z.id));
                 }
             }
         }
         let mut best = 0;
         for i in 1..legal.len() {
-            if score[i] > score[best] {
+            if (protected[i], score[i]) > (protected[best], score[best]) {
                 best = i;
             }
         }
@@ -550,6 +587,7 @@ mod tests {
             }
             PeBackend::scope_backend(b, || {
                 let a = Zombie {
+                    age: 0,
                     id: ZombieId::from_raw(65537),
                     kind: Z::GigaGargantuar,
                     row: 6,
@@ -640,6 +678,7 @@ mod tests {
     #[test]
     fn optional_grouping_must_not_stop_a_jack_outside_the_gloom() {
         let z = Zombie {
+            age: 0,
             id: ZombieId::from_raw(65537),
             kind: Z::JackInTheBox,
             row: 5,

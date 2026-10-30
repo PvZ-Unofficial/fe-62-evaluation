@@ -72,6 +72,7 @@ pub struct Planner {
     next_combo_check: i32,
     squash_group_wait: Option<(ZombieId, i32)>,
     nuke_hold: Option<nuke::Retention>,
+    nuke_debts: Vec<(ZombieId, i32)>,
     next_nuke_retention: i32,
     nuke_exclude47: bool,
     current_nuke: Option<(i32, i32)>,
@@ -128,6 +129,7 @@ impl Default for Planner {
             next_combo_check: 0,
             squash_group_wait: None,
             nuke_hold: None,
+            nuke_debts: Vec::with_capacity(32),
             next_nuke_retention: 0,
             nuke_exclude47: false,
             current_nuke: None,
@@ -159,6 +161,7 @@ mod candidate_tests {
         use rsvz::core::model::ContactRect;
         for x in -20..850 {
             let z = Zombie {
+                age: 0,
                 id: ZombieId::from_raw(65537),
                 kind: Z::GigaGargantuar,
                 row: 2,
@@ -202,6 +205,7 @@ mod candidate_tests {
         world.with_backend(|b| {
             PeBackend::scope_backend(b, || {
                 let z = Zombie {
+                    age: 0,
                     id: ZombieId::from_raw(65537),
                     kind: Z::Football,
                     row: 6,
@@ -1206,6 +1210,7 @@ impl Planner {
         } else {
             0
         };
+        self.keep_nuke_dependency(z, out, f);
         self.cache.insert(
             z.id,
             Cached {
@@ -1394,17 +1399,6 @@ impl Planner {
                 if pad.lifetime <= 0 || z.frozen >= pad.lifetime || !prediction::could_contact_pad(z, pad) {
                     continue;
                 }
-                if kind == PuffShroom {
-                    pad.offset_x = -5;
-                    let left = prediction::contact(z, z.x, pad.rect());
-                    pad.offset_x = 4;
-                    let right = prediction::contact(z, z.x, pad.rect());
-                    pad.offset_x = 0;
-                    // The narrow ambiguous strip is crossed before an immediate block.
-                    if left != right {
-                        continue;
-                    }
-                }
                 if !replace && self.event_cache != 0 && z.giant() && baseline.is_some() {
                     if let Some(cached) = self.cache.get(&z.id) {
                         let contact = cached.prefix.first_contact[(col - 1) as usize];
@@ -1441,6 +1435,9 @@ impl Planner {
                     break;
                 }
                 let after = run(z, &self.scene, f, Some(pad));
+                if kind == PuffShroom && !combination::useful(z, base, after) {
+                    continue;
+                }
                 if replace && !(after.safe() && !base.safe() || after.death < base.death || after.danger > base.danger)
                 {
                     continue;
@@ -1674,6 +1671,11 @@ impl Planner {
         // Preserve an earlier real loss elsewhere instead of waiting blindly
         // for one lane's preferred damage position.
         let emergency = self.scene.zombies.iter().copied().any(|z| {
+            if z.kind == Z::Imp && matches!(z.phase, ZombiePhase::ImpGettingThrown | ZombiePhase::ImpLanding) {
+                return prediction::imp_landing::observed_landing(z).is_some_and(|(child, arrival)| {
+                    prediction::simulate_imp_arrival(child, &self.scene, &without, 0, arrival).danger <= wait
+                });
+            }
             z.phase == ZombiePhase::JackInTheBoxPopping
                 || (z.giant() || matches!(z.kind, Z::Football | Z::Imp))
                     && run_until(z, &self.scene, &without, None, wait, 2).danger <= wait
@@ -1750,6 +1752,9 @@ impl Planner {
                 return;
             }
             let ordinary = self.choose_pad(PuffShroom, f);
+            if self.wait_for_football_contact(f, ordinary.as_ref()) {
+                return;
+            }
             if self.try_nuke_retention(w, f, ordinary.as_ref()) {
                 return;
             }
@@ -2640,7 +2645,11 @@ impl Planner {
         let quiet_cherry = kind == prediction::EffectKind::Cherry && !self.red_pressure(&without);
         self.required.clear();
         let mut pad_target: Option<(Zombie, i32)> = None;
-        for z in self.scene.zombies.iter().copied().filter(|z| rows.contains(&z.row)) {
+        for i in 0..self.scene.zombies.len() {
+            let z = self.scene.zombies[i];
+            if !rows.contains(&z.row) {
+                continue;
+            }
             if !(z.giant() || matches!(z.kind, Z::Football | Z::Zomboni | Z::Catapult)) {
                 continue;
             }
@@ -2673,6 +2682,7 @@ impl Planner {
             }
             let out = run(z, &self.scene, &without, None);
             if out.safe() && out.death < NEVER {
+                self.keep_nuke_dependency(z, out, &without);
                 continue;
             }
             // An unsafe giant that this Cherry cannot hit is not a reason to
