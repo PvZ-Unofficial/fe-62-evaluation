@@ -52,6 +52,44 @@ fn damage_gap(z: Zombie, hits: i32) -> bool {
         }
 }
 
+#[cfg(test)]
+#[test]
+fn low_health_does_not_erase_an_unresolved_cherry_obligation() {
+    use rsvz_pvz_emulator_backend::{PeBackend, PeWorldConfig, runner_internal::PeWorldOwner};
+    let mut world = PeWorldOwner::new_reset(PeWorldConfig::default())
+        .unwrap()
+        .install_current()
+        .unwrap();
+    world.with_backend(|b| {
+        PeBackend::scope_backend(b, || {
+            let z = Zombie {
+                age: 0,
+                id: ZombieId::from_raw(65537),
+                kind: Z::GigaGargantuar,
+                row: 2,
+                wave: 1,
+                carried: false,
+                x: 300.,
+                hp: 2200,
+                armor: 0,
+                phase: ZombiePhase::ZombieNormal,
+                progress: 0.,
+                speed: 0.37,
+                frozen: 0,
+                chilled: 0,
+                object: false,
+                eating: false,
+                rect: ContactRect::new(283, 100, 408, 254),
+            };
+            let scene = Scene::fixture(vec![z]);
+            let mut state = State::default();
+            assert!(!damage_gap(z, 1));
+            assert!(select(&scene, &Forecast::default(), 100, [true; CANDIDATES], false, &mut state).is_some());
+            assert!(state.required(z.id));
+        })
+    });
+}
+
 struct Target {
     id: ZombieId,
     required: bool,
@@ -152,12 +190,16 @@ pub(super) fn select(
         if base.safe() && base.death < NEVER {
             state.debts.retain(|d| d.id != z.id || !d.planned);
         }
-        if damage_gap(z, hit_count) && next_doom.is_none_or(|i| base.ash_mask & (1 << i) == 0) && !state.required(z.id)
+        let unresolved_before_next_ash =
+            z.kind == Z::GigaGargantuar && z.x <= 500. && !base.safe() && base.danger > at && base.death > base.danger;
+        if (damage_gap(z, hit_count) || unresolved_before_next_ash)
+            && next_doom.is_none_or(|i| base.ash_mask & (1 << i) == 0)
+            && !state.required(z.id)
         {
             state.debts.push(Debt {
                 id: z.id,
                 hits: hit_count,
-                planned: false,
+                planned: !damage_gap(z, hit_count),
             });
             telemetry::record(
                 "cherry_obligation",

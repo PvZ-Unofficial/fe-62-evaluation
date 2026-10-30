@@ -771,6 +771,7 @@ mod tests {
 
     fn giant(id: u32, x: f32) -> Zombie {
         Zombie {
+            age: 0,
             id: ZombieId::from_raw(id),
             kind: Z::GigaGargantuar,
             row: 1,
