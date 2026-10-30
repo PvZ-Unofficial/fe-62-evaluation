@@ -108,6 +108,7 @@ mod tests {
     #[test]
     fn catapult_bait_delay_does_not_extend_chill() {
         let car = Zombie {
+            age: 0,
             id: ZombieId::from_raw(65537),
             kind: Z::Catapult,
             row: 1,

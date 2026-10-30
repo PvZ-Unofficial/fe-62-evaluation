@@ -1,7 +1,65 @@
 //! Two-step, event-bounded alternatives. No per-pixel or unbounded rollout search.
 use super::*;
 
+pub(super) fn useful(base: Outcome, after: Outcome) -> bool {
+    after.trigger < NEVER
+        && (after.death < base.death
+            || after.danger > base.danger
+            || after.ash_hits > base.ash_hits
+            || after.gloom_damage > base.gloom_damage)
+}
+
 impl Planner {
+    pub(super) fn wait_for_football_contact(
+        &mut self, f: &Forecast, current: Option<&(Pos, Zombie, Outcome, Outcome)>,
+    ) -> bool {
+        for i in 0..self.scene.zombies.len() {
+            let z = self.scene.zombies[i];
+            if z.kind != Z::Football || !matches!(z.row, 1 | 5 | 6) || z.x > 300. || self.puff_reserved_for_blover(z) {
+                continue;
+            }
+            let base = self.assessment(z, f);
+            if base.safe() || current.is_some_and(|(_, old, b, _)| old.id == z.id || b.danger < base.danger) {
+                continue;
+            }
+            for &col in pad_columns(z) {
+                let pos = (z.row, col);
+                if self.scene.main(pos).is_some() || !legal(sel(PuffShroom), pos) {
+                    continue;
+                }
+                let mut pad = Pad::new(pos, PuffShroom);
+                pad.order = self.scene.next_plant_order;
+                pad.complete_outcome = true;
+                pad.trigger_window = 2500;
+                let edge = pad.rect().right - 20 - prediction::attack_offsets(z).0;
+                let arrival = prediction::first_left_of(z, &self.scene, f, edge + z.rect.right - z.x as i32, 751);
+                if !(21..751).contains(&arrival) {
+                    continue;
+                }
+                let now = run(z, &self.scene, f, Some(pad));
+                pad.plant_at = arrival - 20;
+                let later = run(z, &self.scene, f, Some(pad));
+                if later.trigger < NEVER
+                    && later.impact > later.trigger
+                    && later.death < later.danger
+                    && (now.death >= now.danger || later.death < now.death)
+                    && !self.scene.zombies.iter().copied().any(|other| {
+                        other.row != z.row
+                            && (other.giant() || other.kind == Z::Football)
+                            && run_until(other, &self.scene, f, None, pad.plant_at, 2).danger <= pad.plant_at
+                    })
+                {
+                    self.puff_window_hold = Some(self.scene.now);
+                    telemetry::record(
+                        "wait_football_contact",
+                        &[z.id.raw() as i64, col as i64, pad.plant_at as i64],
+                    );
+                    return true;
+                }
+            }
+        }
+        false
+    }
     pub(super) fn storage_imp_exposure(&self, pos: Pos, at: i32, target: Zombie, base: Outcome) -> usize {
         let rect = Pad::new(pos, PuffShroom).rect();
         self.scene
@@ -28,6 +86,18 @@ impl Planner {
         // Compare two interventions under the same prediction assumptions. This
         // never rejects padding because the no-intervention deadline looked later.
         let mut waits = Vec::new();
+        // A stored row-one Puff can lose HP to basketballs before any useful
+        // contact. Compare planting just before the first visible consumer
+        // arrives; do not assume an unobserved future attacker or spare HP.
+        let basketball_wait = if z.row == 1 && z.kind == Z::Football && self.scene.basketball_active(1) {
+            let pad = Pad::new(pos, PuffShroom);
+            let edge = pad.rect().right - 20 - prediction::attack_offsets(z).0;
+            let first = prediction::first_left_of(z, &self.scene, f, edge + z.rect.right - z.x as i32, 751);
+            (first > 25 && first < 751).then_some(first - 20)
+        } else {
+            None
+        };
+
         if z.frozen > 0 {
             waits.push(z.frozen);
         }
@@ -52,6 +122,10 @@ impl Planner {
             }
         }
         waits.retain(|&wait| (1..=300).contains(&wait));
+        if let Some(wait) = basketball_wait {
+            waits.push(wait);
+        }
+
         waits.sort_unstable();
         waits.dedup();
         let deadline = if waits.is_empty() {
@@ -303,6 +377,7 @@ mod tests {
             b.finish_card_selection().unwrap();
             PeBackend::scope_backend(b, || {
                 let z = Zombie {
+                    age: 0,
                     id: ZombieId::from_raw(65537),
                     kind: Z::GigaGargantuar,
                     row: 5,
@@ -368,6 +443,7 @@ mod tests {
             b.finish_card_selection().unwrap();
             PeBackend::scope_backend(b, || {
                 let first = Zombie {
+                    age: 0,
                     id: ZombieId::from_raw(65537),
                     kind: Z::GigaGargantuar,
                     row: 5,
@@ -428,6 +504,7 @@ mod tests {
                     .into_iter()
                     .enumerate()
                     .map(|(i, x)| Zombie {
+                        age: 0,
                         id: ZombieId::from_raw(65537 + i as u32),
                         kind: Z::GigaGargantuar,
                         row: 5,
