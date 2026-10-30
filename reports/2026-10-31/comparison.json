@@ -1,0 +1,244 @@
+{
+  "baseline": {
+    "first": 292,
+    "first_rate": 0.9733333333333334,
+    "mean": 35.04333333333334,
+    "sd": 34.608099109439465,
+    "net_sun_per_successful_round": 41.95757633406259
+  },
+  "groups": [
+    {
+      "first": 289,
+      "first_rate": 0.9633333333333334,
+      "mean": 39.483333333333334,
+      "sd": 38.722186767395414,
+      "net_sun_per_successful_round": 40.884339383706205,
+      "successful_rounds": 11845,
+      "causes": {
+        "gargantuar_smash:row2:kind42": 59,
+        "gargantuar_smash:row5:kind42": 84,
+        "home:row1:kind23": 1,
+        "home:row1:kind32": 74,
+        "home:row1:kind7": 38,
+        "home:row5:kind24": 3,
+        "home:row5:kind7": 16,
+        "home:row6:kind24": 3,
+        "home:row6:kind32": 17,
+        "home:row6:kind7": 1,
+        "jack_explosion:row4:kind42": 4
+      },
+      "group": 1,
+      "label": "g01-native-prediction",
+      "source_commit": "bb036e7b2901e67483fc9f1dcaa54f360cd9acee",
+      "run": "https://github.com/PvZ-Unofficial/fe-62-evaluation/actions/runs/41105392429",
+      "retained": true
+    },
+    {
+      "first": 289,
+      "first_rate": 0.9633333333333334,
+      "mean": 35.20666666666666,
+      "sd": 35.450242422984694,
+      "net_sun_per_successful_round": 42.59136527172884,
+      "successful_rounds": 10562,
+      "causes": {
+        "gargantuar_smash:row2:kind42": 59,
+        "gargantuar_smash:row5:kind42": 94,
+        "home:row1:kind32": 56,
+        "home:row1:kind7": 38,
+        "home:row5:kind24": 1,
+        "home:row5:kind7": 21,
+        "home:row6:kind24": 2,
+        "home:row6:kind32": 17,
+        "home:row6:kind7": 5,
+        "jack_explosion:row4:kind42": 6,
+        "zombie_chew:row5:kind42": 1
+      },
+      "group": 2,
+      "label": "g02-blover-windows",
+      "source_commit": "9e80a3a61a697d3e3e9e493cb809476d364557ef",
+      "run": "https://github.com/xiaoyun-official/fe-62-evaluation/actions/runs/41105795738",
+      "retained": true
+    },
+    {
+      "first": 289,
+      "first_rate": 0.9633333333333334,
+      "mean": 38.79666666666667,
+      "sd": 37.84719305703587,
+      "net_sun_per_successful_round": 39.98840106538363,
+      "successful_rounds": 11639,
+      "causes": {
+        "gargantuar_smash:row2:kind42": 65,
+        "gargantuar_smash:row5:kind42": 86,
+        "home:row1:kind32": 80,
+        "home:row1:kind7": 23,
+        "home:row5:kind24": 4,
+        "home:row5:kind7": 10,
+        "home:row6:kind24": 2,
+        "home:row6:kind32": 20,
+        "home:row6:kind7": 4,
+        "jack_explosion:row3:kind42": 1,
+        "jack_explosion:row4:kind42": 5
+      },
+      "group": 3,
+      "label": "g03-real-holds",
+      "source_commit": "1b6170b36cec79ee9390f2037092232e8f0ddef4",
+      "run": "https://github.com/xiaoyun-official/fe-62-evaluation/actions/runs/41112890578",
+      "retained": true
+    },
+    {
+      "first": 291,
+      "first_rate": 0.97,
+      "mean": 45.016666666666666,
+      "sd": 46.07732764203011,
+      "net_sun_per_successful_round": 46.49944465012958,
+      "successful_rounds": 13505,
+      "causes": {
+        "gargantuar_smash:row2:kind42": 57,
+        "gargantuar_smash:row5:kind42": 86,
+        "home:row1:kind32": 79,
+        "home:row1:kind7": 31,
+        "home:row5:kind24": 3,
+        "home:row5:kind7": 17,
+        "home:row6:kind24": 2,
+        "home:row6:kind32": 17,
+        "home:row6:kind7": 2,
+        "jack_explosion:row3:kind42": 3,
+        "jack_explosion:row4:kind42": 3
+      },
+      "group": 4,
+      "label": "g04-ash-obligations-v2",
+      "source_commit": "b35552d6f074d908544ac13a2835ee76bc8a7b52",
+      "run": "https://github.com/PvZ-Unofficial/fe-62-evaluation/actions/runs/41113067322",
+      "retained": true
+    },
+    {
+      "first": 296,
+      "first_rate": 0.9866666666666667,
+      "mean": 44.67333333333333,
+      "sd": 47.73134077167497,
+      "net_sun_per_successful_round": 45.73571108789733,
+      "successful_rounds": 13402,
+      "causes": {
+        "gargantuar_smash:row2:kind42": 59,
+        "gargantuar_smash:row5:kind42": 106,
+        "home:row1:kind32": 58,
+        "home:row1:kind7": 26,
+        "home:row5:kind24": 2,
+        "home:row5:kind7": 19,
+        "home:row6:kind24": 1,
+        "home:row6:kind32": 21,
+        "home:row6:kind7": 1,
+        "jack_explosion:row3:kind42": 1,
+        "jack_explosion:row4:kind42": 6
+      },
+      "group": 5,
+      "label": "g05-artifact-recovery",
+      "source_commit": "a81fbbb62afe04b6314c604888e0a2aa7d5d37da",
+      "run": "https://github.com/PvZ-Unofficial/fe-62-evaluation/actions/runs/41122178041",
+      "retained": true
+    },
+    {
+      "first": 297,
+      "first_rate": 0.99,
+      "mean": 28.886666666666667,
+      "sd": 27.686621056157186,
+      "net_sun_per_successful_round": 38.58469882298638,
+      "successful_rounds": 8666,
+      "causes": {
+        "gargantuar_smash:row2:kind42": 147,
+        "gargantuar_smash:row5:kind42": 73,
+        "home:row1:kind23": 1,
+        "home:row1:kind32": 33,
+        "home:row1:kind7": 18,
+        "home:row5:kind24": 1,
+        "home:row5:kind7": 5,
+        "home:row6:kind24": 1,
+        "home:row6:kind32": 18,
+        "home:row6:kind7": 2,
+        "jack_explosion:row4:kind42": 1
+      },
+      "group": 6,
+      "label": "g06-w20-v2",
+      "source_commit": "c424d94a07f00c24b6864731affcefef9f0867af",
+      "run": "https://github.com/PvZ-Unofficial/fe-62-evaluation/actions/runs/41113299035",
+      "retained": false
+    },
+    {
+      "first": 298,
+      "first_rate": 0.9933333333333333,
+      "mean": 52.403333333333336,
+      "sd": 47.313591161358374,
+      "net_sun_per_successful_round": 50.99707397748235,
+      "successful_rounds": 15721,
+      "causes": {
+        "gargantuar_smash:row2:kind42": 54,
+        "gargantuar_smash:row5:kind42": 70,
+        "home:row1:kind23": 1,
+        "home:row1:kind32": 70,
+        "home:row1:kind7": 35,
+        "home:row5:kind24": 9,
+        "home:row5:kind7": 14,
+        "home:row6:kind24": 1,
+        "home:row6:kind32": 33,
+        "home:row6:kind7": 8,
+        "jack_explosion:row4:kind42": 5
+      },
+      "group": 7,
+      "label": "g07-stack-without-w20",
+      "source_commit": "75b8d4073fd5b1ea41ddb2577f0586850c67764b",
+      "run": "https://github.com/PvZ-Unofficial/fe-62-evaluation/actions/runs/41119303352",
+      "retained": true
+    }
+  ],
+  "retained_groups": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    7
+  ],
+  "failed_puff_variant": {
+    "label": "g03-puff-contact",
+    "run": {
+      "conclusion": "success",
+      "databaseId": 41106588974,
+      "headSha": "63a5cbfa2e03b1f6dbb15553e47d5534791bf9f9",
+      "status": "completed",
+      "url": "https://github.com/PvZ-Unofficial/fe-62-evaluation/actions/runs/41106588974"
+    },
+    "first": 291,
+    "mean": 31.42,
+    "sun": 41.82049649904519,
+    "causes": {
+      "gargantuar_smash:row2:kind42": 57,
+      "gargantuar_smash:row5:kind42": 60,
+      "home:row1:kind32": 116,
+      "home:row1:kind7": 24,
+      "home:row5:kind24": 4,
+      "home:row5:kind7": 11,
+      "home:row6:kind24": 1,
+      "home:row6:kind32": 19,
+      "home:row6:kind7": 5,
+      "jack_explosion:row4:kind42": 3
+    }
+  },
+  "w20_diagnosis": {
+    "row2_smashes": 147,
+    "row2_wave1_smashes": 120,
+    "reproduced_seed": 34646122,
+    "reason": "Two W20 Squashes spent in row five left row two without its required damage."
+  },
+  "artifact_recovery": {
+    "group": 5,
+    "original_run": 41113191997,
+    "recovery_run": 41122178041,
+    "same_binary_and_seeds": true,
+    "all_six_old_shards_reused": true
+  },
+  "tests": {
+    "passed": 209,
+    "ignored_preexisting": 2,
+    "production_behavior_commit": "75b8d4073fd5b1ea41ddb2577f0586850c67764b"
+  }
+}
