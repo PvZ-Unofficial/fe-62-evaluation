@@ -1,10 +1,6 @@
 //! A real balloon-clearing use can also hold footballs omitted or missed by Cherry.
 use super::*;
 
-// One decision frame plus the native four-frame bite check (eight when
-// chilled at half speed), at the observed Football step bound 0.85px.
-const FOOTBALL_CONTACT_MARGIN: i32 = 5;
-
 fn wave_bit(wave: i32) -> u32 {
     if (1..=20).contains(&wave) { 1 << wave } else { 0 }
 }
@@ -16,6 +12,31 @@ fn next_spawn_observed(wave: i32, time: i32, birth: i32, flying: &[Zombie]) -> b
 }
 
 impl Planner {
+    fn football_window(
+        &self, id: ZombieId, col: i32, horizon: u32, f: &Forecast,
+    ) -> prediction::football_contact::Window {
+        use prediction::football_contact::{Window, window};
+        rsvz::with_frame(|board| {
+            let Some(z) = board.zombie(id) else {
+                return Window::Missed;
+            };
+            if z.is_frozen() || z.is_eating() {
+                return Window::Open;
+            }
+            let Some(state) = z.motion_state() else {
+                return Window::Open;
+            };
+            let elapsed = rsvz::timing::clock() - self.scene.now;
+            let ice = f
+                .events
+                .iter()
+                .filter(|e| e.certain && e.kind == prediction::EffectKind::Ice)
+                .map(|e| (e.at - elapsed).max(1))
+                .min();
+            window(&state, z.age(), col, horizon, ice).unwrap_or(Window::Open)
+        })
+    }
+
     pub fn cherry_omitted(&mut self, wave: i32) {
         self.omitted_cherry_births |= wave_bit(wave);
         telemetry::record("blover_birth_plan", &[wave as i64]);
@@ -81,6 +102,9 @@ impl Planner {
         {
             return 2;
         }
+        if target.x < 80. {
+            return 1;
+        }
         let members: Vec<_> = self
             .scene
             .row_zombies(1)
@@ -104,15 +128,10 @@ impl Planner {
             if target.x < last_x as f32 {
                 return None;
             }
-            let due_x = last_x + FOOTBALL_CONTACT_MARGIN;
-            let wait = if target.x <= due_x as f32 {
-                0
-            } else {
-                prediction::first_left_of(target, &self.scene, f, due_x + target.rect.right - target.x as i32, 751)
+            let wait = match self.football_window(target.id, col, 751, f) {
+                prediction::football_contact::Window::LastCheckIn(dt) => dt as i32 - 1,
+                _ => return None,
             };
-            if wait >= 751 {
-                return None;
-            }
             pad.plant_at = wait;
             pad.lifetime = wait + 251;
             pad.trigger_window = 2500;
@@ -153,24 +172,36 @@ impl Planner {
     }
 
     /// Only a cheap contact query runs between the usual five-frame observations.
-    pub fn blover_contact_due(&self, wave: i32, time: i32) -> bool {
+    pub fn blover_contact_due(&self, wave: i32, time: i32, f: &Forecast) -> bool {
         let Some(birth) = self.blover_watch_birth else {
             return false;
         };
         if wave <= birth || time < 1 {
             return false;
         }
-        rsvz::with_frame(|board| {
-            board.zombies().any(|z| {
-                z.is_alive()
-                    && z.has_head()
-                    && !z.is_frozen()
-                    && z.row() == 0
-                    && z.kind() == Z::Football
-                    && z.from_wave() + 1 == birth
-                    && ((self.blover_watch_col * 80 - 80)..=(self.blover_watch_col * 80 - 80 + FOOTBALL_CONTACT_MARGIN))
-                        .contains(&(z.x() as i32))
-            })
+        let col = self.blover_watch_col;
+        let edge = (col * 80 - 80) as f32;
+        // Broad-phase only: within one 16-frame walk of the left contact edge.
+        // The cast decision itself uses the actual age/check phase, not pixels.
+        let target = rsvz::with_frame(|board| {
+            board
+                .zombies()
+                .filter(|z| {
+                    z.is_alive()
+                        && z.has_head()
+                        && !z.is_frozen()
+                        && !z.is_eating()
+                        && z.row() == 0
+                        && z.kind() == Z::Football
+                        && z.from_wave() + 1 == birth
+                        && z.x() >= edge
+                        && z.x() <= edge + prediction::max_step(Z::Football) * 16.
+                })
+                .min_by(|a, b| a.x().total_cmp(&b.x()))
+                .map(|z| z.id())
+        });
+        target.is_some_and(|id| {
+            self.football_window(id, col, 16, f) == prediction::football_contact::Window::LastCheckIn(1)
         })
     }
 
@@ -331,7 +362,9 @@ impl Planner {
                             // rather than starting the giant's hammer at first contact.
                             // Urgent visible balloons still use the existing immediate cast.
                             if prediction::contact(target, target.x, pad.rect())
-                                && (insurance || target.x <= last_x + FOOTBALL_CONTACT_MARGIN as f32)
+                                && (insurance
+                                    || self.football_window(target.id, col, 16, f)
+                                        == prediction::football_contact::Window::LastCheckIn(1))
                             {
                                 let before = self.assessment(target, f);
                                 let after = run(target, &self.scene, f, Some(pad));

@@ -9,6 +9,7 @@ use rsvz::core::model::{
 use rsvz::core::zombie_motion::vanilla_track_frames;
 use std::collections::HashMap;
 use std::sync::OnceLock;
+pub(crate) mod football_contact;
 pub(crate) mod imp_landing;
 mod projectiles;
 
