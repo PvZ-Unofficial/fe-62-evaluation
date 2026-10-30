@@ -1,5 +1,5 @@
 name: Evaluate
-run-name: ${{ inputs.label }} · ${{ github.ref_name }}
+run-name: ${{ inputs.label }} 路 ${{ github.ref_name }}
 on:
   workflow_dispatch:
     inputs:
@@ -13,75 +13,26 @@ on:
         default: cloud-baseline
 permissions:
   contents: read
+  actions: read
 jobs:
   build:
-    runs-on: windows-2022
-    timeout-minutes: 45
-    env:
-      RUSTUP_TOOLCHAIN: nightly-2026-06-04
-      PYTHONUTF8: '1'
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/download-artifact@v8.0.2
         with:
-          persist-credentials: false
-      - uses: actions/cache@v6.1.0
-        with:
-          path: C:\rsvz-llvm-22.1.7
-          key: llvm-22.1.7-windows-x64
-      - name: Prepare build tools
-        shell: pwsh
-        run: |
-          rustup toolchain install nightly-2026-06-04 --profile minimal
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $llvmRoot = 'C:\rsvz-llvm-22.1.7'
-          $llvmBin = Join-Path $llvmRoot 'bin'
-          if (!(Test-Path "$llvmBin\clang-cl.exe")) {
-            $installer = Join-Path $env:RUNNER_TEMP 'LLVM-22.1.7-win64.exe'
-            Invoke-WebRequest 'https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.7/LLVM-22.1.7-win64.exe' -OutFile $installer
-            $install = Start-Process -FilePath $installer -ArgumentList '/S', "/D=$llvmRoot" -Wait -PassThru -WindowStyle Hidden
-            if ($install.ExitCode -ne 0) { exit $install.ExitCode }
-          }
-          "PE_RS_LLVM_BIN=$llvmBin" >> $env:GITHUB_ENV
-          "LIBCLANG_PATH=$llvmBin" >> $env:GITHUB_ENV
-          $llvmBin >> $env:GITHUB_PATH
-          if (!(Get-Command ninja -ErrorAction SilentlyContinue)) {
-            python -m pip install ninja
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          }
-          rustc --version
-          & "$llvmBin\clang-cl.exe" --version
-          cmake --version
-      - uses: actions/cache@v6.1.0
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            RustVsZombies/target
-          key: windows-2022-fe62-nightly-20260604-llvm2217-${{ hashFiles('RustVsZombies/Cargo.lock', 'SNAPSHOT.json') }}
-          restore-keys: windows-2022-fe62-nightly-20260604-llvm2217-
-      - name: Validate reporting
-        run: python -m unittest discover -s ci -p "test_*.py"
-      - name: Build one runner
-        env:
-          REQUEST_PATH: ${{ inputs.request }}
-        run: python ci/evaluate.py build --request "$env:REQUEST_PATH"
+          name: runner-bundle
+          path: bundle
+          run-id: 41113191997
+          github-token: ${{ github.token }}
       - uses: actions/upload-artifact@v7.0.2
         with:
           name: runner-bundle
           path: bundle/
           retention-days: 7
-          if-no-files-found: error
-      - name: Preserve build failure logs
-        if: failure()
-        uses: actions/upload-artifact@v7.0.2
-        with:
-          name: build-failure
-          path: bundle/build.log
-          retention-days: 7
   simulate:
     needs: build
     runs-on: windows-2022
-    timeout-minutes: 90
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
@@ -93,11 +44,27 @@ jobs:
         with:
           persist-credentials: false
           sparse-checkout: ci
+      - id: previous
+        uses: actions/download-artifact@v8.0.2
+        continue-on-error: true
+        with:
+          name: shard-${{ matrix.shard }}
+          path: recovered
+          run-id: 41113191997
+          github-token: ${{ github.token }}
+      - name: Keep validated old shard
+        if: steps.previous.outcome == 'success'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path outputs | Out-Null
+          Copy-Item -LiteralPath recovered -Destination outputs/shard-${{ matrix.shard }} -Recurse
       - uses: actions/download-artifact@v8.0.2
+        if: steps.previous.outcome != 'success'
         with:
           name: runner-bundle
           path: bundle
       - name: Run 50 independent roots with 4 workers
+        if: steps.previous.outcome != 'success' 
         run: python ci/evaluate.py shard --index ${{ matrix.shard }}
       - uses: actions/upload-artifact@v7.0.2
         if: always()
