@@ -541,3 +541,42 @@ fn football_late_blover_contact_matches_native_edges() {
         });
     }
 }
+
+#[test]
+fn late_blover_margin_native_phase_sweep() {
+    let mut misses = Vec::new();
+    for start in 230..290 {
+        let mut world = PeWorldOwner::new_reset(PeWorldConfig {
+            scene: pe_rs::SceneType::Fog,
+            ..Default::default()
+        })
+        .unwrap()
+        .install_current()
+        .unwrap();
+        world.with_backend(|b| {
+            b.set_zombie_spawn_stopped(true).unwrap();
+            let z = b.place_zombie(Z::Football, grid((1, 6))).unwrap();
+            b.set_zombie_x(z, rsvz::core::model::I32RepresentableF32::new(start as f32).unwrap())
+                .unwrap();
+        });
+        for _ in 0..1000 {
+            let due = world.with_backend(|b| b.zombie_pos_x(b.zombies().unwrap().next().unwrap()) <= 85.);
+            if due {
+                break;
+            }
+            world.update_world().unwrap();
+        }
+        let x = world.with_backend(|b| {
+            let x = b.zombie_pos_x(b.zombies().unwrap().next().unwrap());
+            b.new_plant(sel(Blover).checked().unwrap(), grid((1, 2))).unwrap();
+            x
+        });
+        for _ in 0..4 {
+            world.update_world().unwrap();
+        }
+        if !world.with_backend(|b| b.zombie_is_eating(b.zombies().unwrap().next().unwrap())) {
+            misses.push((start, x));
+        }
+    }
+    assert!(misses.is_empty(), "missed contact cases: {:?}", misses);
+}
