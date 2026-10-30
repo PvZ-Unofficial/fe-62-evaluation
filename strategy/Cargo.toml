@@ -1,0 +1,19 @@
+[package]
+name = "fe_62_auto"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+
+[dependencies]
+rsvz = { path = "../RustVsZombies/crates/scripting/api" }
+
+[features]
+live-display = []
+perf-profile = []
+
+[dev-dependencies]
+rsvz-pvz-emulator-backend = { path = "../RustVsZombies/crates/backends/pvz_emulator/backend" }
+
+[workspace]
+resolver = "3"

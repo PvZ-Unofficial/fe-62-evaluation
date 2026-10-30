@@ -1,0 +1,29 @@
+[package]
+name = "rsvz-pvz-portable-backend"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "PvZ-Portable backend adapter for RustVsZombies"
+
+[dependencies]
+sha2 = "0.10"
+crc32fast = "1.5"
+pvzp-rs.workspace = true
+rsvz-backend-api.workspace = true
+rsvz-model.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1" }
+thiserror.workspace = true
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading", "Win32_UI_Input_KeyboardAndMouse"] }
+
+[target.'cfg(unix)'.dependencies]
+font-kit = "0.14"
+pathfinder_geometry = "0.5"
+
+# Android uses font-kit's filesystem source. Its unused fontconfig dependency
+# must not require the desktop system library when cross-compiling.
+[target.'cfg(target_os = "android")'.dependencies]
+font-kit = { version = "0.14", features = ["source-fontconfig-dlopen"] }
+
+[lints]
+workspace = true

@@ -1,0 +1,6 @@
+CompileFlags:
+  CompilationDatabase: out/build/clangd
+
+Diagnostics:
+  ClangTidy:
+    Remove: bugprone-integer-division

@@ -1,0 +1,1478 @@
+//! Event-backed measurement policy, aggregation, and reports.
+
+use rsvz_current::CurrentBackend;
+use std::cell::RefCell;
+use std::collections::BTreeMap;
+use std::io::{self, Write};
+use std::rc::Rc;
+#[cfg(test)]
+use std::time::Instant;
+
+use crate::SessionArtifact;
+use crate::measure::{
+    MeasurementRunConfig, MeasurementTrialCountError, MeasurementWindowEndReport, TrialRun, measurement_window_reached,
+};
+use crate::runtime::{RuntimeError, RuntimeResult};
+use rsvz_backend_api::backend::{PlantReadBackend, ZombieRawFactsBackend, ZombieStateBackend};
+use rsvz_model::model::{
+    BattleStatus, CardSelection, EffectOutcomeFact, EventDecision, EventFrameStatus, EventInterest,
+    GargantuarAshHitFact, GargantuarSpawnedFact, Grid, HomeEntryFact, ImpLeakDiagnosticConfig, ImpThrownFact,
+    MeasureLimit, MeasureMode, MeasurementEnd, MeasurementTrialCounts, PlantEffect, PlantEffectAttemptFact,
+    PlantEffectOutcome, PlantEffectSource, PlantKind, ProtectTarget, ProtectionEdit, ProtectionPolicy, RelativeTime,
+    SessionShard, WaveClockState, WorldResetConfig, ZombieKind,
+};
+use rsvz_model::plant_occupies_grid;
+use rsvz_schedule::event::InternalEventInterceptor;
+
+mod imp_leak;
+mod plant_loss;
+use plant_loss::PlantLossSample;
+mod report;
+use imp_leak::SampleOutcome;
+use imp_leak::{ImpLeakAggregate, ImpLeakTracker, TrialEnd, bite_target};
+pub use report::*;
+
+const DAMAGE_SOURCE_COUNT: usize = 3;
+const PLANT_KIND_COUNT: usize = PlantKind::COUNT;
+const BOARD_ROWS: usize = 6;
+const BOARD_COLS: usize = 9;
+const BOARD_GRIDS: usize = BOARD_ROWS * BOARD_COLS;
+const OUTCOME_COUNT: usize = 10;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum EventTrialOutcome {
+    ObjectiveReached,
+    Home,
+    PogoHome,
+    GargSmash,
+    RefreshFailure,
+    GameOver,
+    Invalid,
+    ImpLeak,
+    VehicleCrush,
+    ImitatorIceLoss,
+}
+
+impl EventTrialOutcome {
+    const fn index(self) -> usize {
+        match self {
+            Self::ObjectiveReached => 0,
+            Self::Home => 1,
+            Self::PogoHome => 2,
+            Self::GargSmash => 3,
+            Self::RefreshFailure => 4,
+            Self::GameOver => 5,
+            Self::Invalid => 6,
+            Self::ImpLeak => 7,
+            Self::VehicleCrush => 8,
+            Self::ImitatorIceLoss => 9,
+        }
+    }
+
+    const fn is_valid(self) -> bool {
+        !matches!(self, Self::Invalid)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EventMode {
+    DamageNarrow,
+    BroadPass,
+    Smash,
+    Pogo,
+}
+
+impl EventMode {
+    fn from_mode(mode: MeasureMode) -> Result<Self, EventMeasureConfigError> {
+        Ok(match mode {
+            MeasureMode::DamageNarrow => Self::DamageNarrow,
+            MeasureMode::BroadPass => Self::BroadPass,
+            MeasureMode::Smash => Self::Smash,
+            MeasureMode::Pogo => Self::Pogo,
+            MeasureMode::Refresh => return Err(EventMeasureConfigError::RefreshMode),
+        })
+    }
+
+    const fn mode(self) -> MeasureMode {
+        match self {
+            Self::DamageNarrow => MeasureMode::DamageNarrow,
+            Self::BroadPass => MeasureMode::BroadPass,
+            Self::Smash => MeasureMode::Smash,
+            Self::Pogo => MeasureMode::Pogo,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EventMeasureConfig {
+    mode: EventMode,
+    protection: ProtectionPolicy,
+    declared_cards: Option<Vec<CardSelection>>,
+    window_end: Option<RelativeTime>,
+    imp_leak: ImpLeakDiagnosticConfig,
+}
+
+impl EventMeasureConfig {
+    pub fn new(
+        mode: MeasureMode, protection: ProtectionPolicy, declared_cards: Option<Vec<CardSelection>>,
+    ) -> Result<Self, EventMeasureConfigError> {
+        let mode = EventMode::from_mode(mode)?;
+        validate_protection(&protection, declared_cards.as_deref(), false)?;
+        Ok(Self {
+            mode,
+            protection,
+            declared_cards,
+            window_end: None,
+            imp_leak: ImpLeakDiagnosticConfig::default(),
+        })
+    }
+
+    #[must_use]
+    pub const fn mode(&self) -> MeasureMode {
+        self.mode.mode()
+    }
+
+    #[must_use]
+    pub const fn protection(&self) -> &ProtectionPolicy {
+        &self.protection
+    }
+
+    #[must_use]
+    pub fn declared_cards(&self) -> Option<&[CardSelection]> {
+        self.declared_cards.as_deref()
+    }
+
+    pub fn set_window_end(&mut self, window_end: Option<RelativeTime>) {
+        self.window_end = window_end;
+    }
+
+    #[must_use]
+    pub const fn window_end(&self) -> Option<RelativeTime> {
+        self.window_end
+    }
+
+    pub fn set_imp_leak(&mut self, config: ImpLeakDiagnosticConfig) {
+        self.imp_leak = config;
+    }
+
+    #[must_use]
+    pub const fn imp_leak(&self) -> ImpLeakDiagnosticConfig {
+        self.imp_leak
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum EventMeasureConfigError {
+    #[error("Refresh does not use the native event measurement task")]
+    RefreshMode,
+    #[error("protect_unrepairable_from_cards() requires selected cards")]
+    SelectedCardsRequired,
+    #[error("protect_unrepairable_from_cards() requires at least one selected card")]
+    EmptySelectedCards,
+    #[error("measurement Add/Only grid selector must be resolved after lineup setup")]
+    UnresolvedGridTarget,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ProtectionGridResolveError {
+    #[error("measurement protection backend operation failed: {0}")]
+    Backend(RuntimeError),
+    #[error("measurement protect::grid({row}, {col}) did not match a live plant")]
+    EmptyGrid { row: i32, col: i32 },
+    #[error(transparent)]
+    Policy(#[from] EventMeasureConfigError),
+}
+
+pub fn resolve_event_measure_config(config: &mut EventMeasureConfig) -> Result<(), ProtectionGridResolveError>
+where
+    rsvz_current::CurrentBackend: PlantReadBackend,
+{
+    for edit in config.protection.edits_mut() {
+        let targets = match edit {
+            ProtectionEdit::Add(targets) | ProtectionEdit::Only(targets) => targets,
+            ProtectionEdit::Remove(_) => continue,
+        };
+        for target in targets {
+            if let ProtectTarget::Grid(grid) = *target {
+                *target = key_plant_at(grid)?;
+            }
+        }
+    }
+    validate_protection(&config.protection, config.declared_cards.as_deref(), true)?;
+    Ok(())
+}
+
+fn validate_protection(
+    policy: &ProtectionPolicy, declared_cards: Option<&[CardSelection]>, resolved: bool,
+) -> Result<(), EventMeasureConfigError> {
+    if policy.protect_unrepairable_from_cards_enabled() {
+        match declared_cards {
+            None => return Err(EventMeasureConfigError::SelectedCardsRequired),
+            Some([]) => return Err(EventMeasureConfigError::EmptySelectedCards),
+            Some(_) => {}
+        }
+    }
+    if resolved
+        && policy.edits().iter().any(|edit| {
+            matches!(edit, ProtectionEdit::Add(targets) | ProtectionEdit::Only(targets)
+                if targets.iter().any(|target| matches!(target, ProtectTarget::Grid(_))))
+        })
+    {
+        return Err(EventMeasureConfigError::UnresolvedGridTarget);
+    }
+    Ok(())
+}
+
+fn protects(config: &EventMeasureConfig, grid: Grid, raw_kind: PlantKind, effective_kind: PlantKind) -> bool {
+    let mut protected = config.protection.protect_unrepairable_from_cards_enabled()
+        && !config
+            .declared_cards
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .any(|selection| {
+                matches!(selection, CardSelection::Plant(kind) | CardSelection::Imitator(kind) if *kind == effective_kind)
+            });
+    for edit in config.protection.edits() {
+        match edit {
+            ProtectionEdit::Add(targets) => {
+                if targets
+                    .iter()
+                    .copied()
+                    .any(|target| target_matches(target, grid, raw_kind, effective_kind))
+                {
+                    protected = true;
+                }
+            }
+            ProtectionEdit::Remove(targets) => {
+                if targets
+                    .iter()
+                    .copied()
+                    .any(|target| target_matches(target, grid, raw_kind, effective_kind))
+                {
+                    protected = false;
+                }
+            }
+            ProtectionEdit::Only(targets) => {
+                protected = targets
+                    .iter()
+                    .copied()
+                    .any(|target| target_matches(target, grid, raw_kind, effective_kind));
+            }
+        }
+    }
+    protected
+}
+
+fn target_matches(target: ProtectTarget, grid: Grid, raw_kind: PlantKind, effective_kind: PlantKind) -> bool {
+    match target {
+        ProtectTarget::Plant {
+            grid: target_grid,
+            kind,
+        } => target_grid == grid && kind == raw_kind,
+        ProtectTarget::Grid(target_grid) => plant_occupies_grid(grid, effective_kind, target_grid),
+    }
+}
+
+fn key_plant_at(grid: Grid) -> Result<ProtectTarget, ProtectionGridResolveError>
+where
+    rsvz_current::CurrentBackend: PlantReadBackend,
+{
+    CurrentBackend::with_backend_shared(|backend| {
+        let mut best = None;
+        for plant in crate::live_value::read_or_abort(backend.plants(), "plants") {
+            let anchor = crate::plant::grid_from_handle(backend, plant);
+            let effective_kind = backend
+                .plant_kind(plant)
+                .unwrap_or_else(|error| crate::diagnostics::abort_operation(error.into()));
+            let raw_kind = backend
+                .plant_raw_kind(plant)
+                .unwrap_or_else(|error| crate::diagnostics::abort_operation(error.into()));
+            if !plant_occupies_grid(anchor, effective_kind, grid) {
+                continue;
+            }
+            let priority = match raw_kind {
+                PlantKind::Pumpkin => 2,
+                PlantKind::LilyPad | PlantKind::FlowerPot => 3,
+                _ => 0,
+            };
+            if best.is_none_or(|(best_priority, _)| priority < best_priority) {
+                best = Some((
+                    priority,
+                    ProtectTarget::Plant {
+                        grid: anchor,
+                        kind: raw_kind,
+                    },
+                ));
+            }
+        }
+        best.map(|(_, target)| target).ok_or_else(|| {
+            let (row, col) = grid.to_one_based();
+            ProtectionGridResolveError::EmptyGrid { row, col }
+        })
+    })
+    .map_err(|error| ProtectionGridResolveError::Backend(RuntimeError::new(error.to_string())))?
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct EventMeasurementPartial {
+    outcomes: [u64; OUTCOME_COUNT],
+    damage_total: i64,
+    damage_by_source: [i64; DAMAGE_SOURCE_COUNT],
+    damage_by_plant: [i64; PLANT_KIND_COUNT],
+    home_entries: u64,
+    home_by_row: [u64; BOARD_ROWS],
+    first_home_time: Option<u64>,
+    pogo_entries: u64,
+    pogo_by_row: [u64; BOARD_ROWS],
+    first_pogo_time: Option<u64>,
+    smash_events: u64,
+    smash_by_grid: [u64; BOARD_GRIDS],
+    imp_leak: ImpLeakAggregate,
+    vehicle_crush_sample: Option<PlantLossSample>,
+    imitator_ice_loss_sample: Option<PlantLossSample>,
+}
+
+impl Default for EventMeasurementPartial {
+    fn default() -> Self {
+        Self {
+            outcomes: [0; OUTCOME_COUNT],
+            damage_total: 0,
+            damage_by_source: [0; DAMAGE_SOURCE_COUNT],
+            damage_by_plant: [0; PLANT_KIND_COUNT],
+            home_entries: 0,
+            home_by_row: [0; BOARD_ROWS],
+            first_home_time: None,
+            pogo_entries: 0,
+            pogo_by_row: [0; BOARD_ROWS],
+            first_pogo_time: None,
+            smash_events: 0,
+            smash_by_grid: [0; BOARD_GRIDS],
+            imp_leak: ImpLeakAggregate::default(),
+            vehicle_crush_sample: None,
+            imitator_ice_loss_sample: None,
+        }
+    }
+}
+
+impl EventMeasurementPartial {
+    pub fn merge_from(&mut self, other: &Self) {
+        add_u64(&mut self.outcomes, &other.outcomes);
+        self.damage_total = self.damage_total.saturating_add(other.damage_total);
+        add_i64(&mut self.damage_by_source, &other.damage_by_source);
+        add_i64(&mut self.damage_by_plant, &other.damage_by_plant);
+        self.home_entries = self.home_entries.saturating_add(other.home_entries);
+        add_u64(&mut self.home_by_row, &other.home_by_row);
+        self.first_home_time = min_option(self.first_home_time, other.first_home_time);
+        self.pogo_entries = self.pogo_entries.saturating_add(other.pogo_entries);
+        add_u64(&mut self.pogo_by_row, &other.pogo_by_row);
+        self.first_pogo_time = min_option(self.first_pogo_time, other.first_pogo_time);
+        self.smash_events = self.smash_events.saturating_add(other.smash_events);
+        add_u64(&mut self.smash_by_grid, &other.smash_by_grid);
+        self.imp_leak.merge_from(&other.imp_leak);
+        PlantLossSample::merge(&mut self.vehicle_crush_sample, other.vehicle_crush_sample);
+        PlantLossSample::merge(&mut self.imitator_ice_loss_sample, other.imitator_ice_loss_sample);
+    }
+
+    const fn outcome(&self, outcome: EventTrialOutcome) -> u64 {
+        self.outcomes[outcome.index()]
+    }
+
+    #[must_use]
+    pub fn attempted_trials(&self) -> u64 {
+        self.outcomes.iter().copied().fold(0, u64::saturating_add)
+    }
+
+    #[must_use]
+    pub const fn invalid_trials(&self) -> u64 {
+        self.outcome(EventTrialOutcome::Invalid)
+    }
+
+    #[cfg(test)]
+    fn report(&self, mode: MeasureMode, counts: MeasurementTrialCounts) -> EventMeasureReport {
+        self.report_with_window(
+            EventMode::from_mode(mode).expect("event mode"),
+            counts,
+            None,
+            ImpLeakDiagnosticConfig::default(),
+        )
+    }
+
+    fn report_with_window(
+        &self, mode: EventMode, counts: MeasurementTrialCounts, window_end: Option<RelativeTime>,
+        imp_leak_config: ImpLeakDiagnosticConfig,
+    ) -> EventMeasureReport {
+        let valid_trials = counts.attempted_trials.saturating_sub(counts.invalid_trials);
+        let common = CommonCounts {
+            mode: mode.mode().as_str().to_owned(),
+            requested_trials: counts.requested_trials,
+            attempted_trials: counts.attempted_trials,
+            valid_trials,
+            invalid_trials: counts.invalid_trials,
+            aborted_unrun_trials: counts.aborted_unrun_trials,
+            window_end: window_end.map(MeasurementWindowEndReport::from),
+        };
+        match mode {
+            EventMode::DamageNarrow => {
+                let success = self.outcome(EventTrialOutcome::ObjectiveReached);
+                let garg_smash = self.outcome(EventTrialOutcome::GargSmash);
+                let pogo_home = self.outcome(EventTrialOutcome::PogoHome);
+                let home_total = self.outcome(EventTrialOutcome::Home).saturating_add(pogo_home);
+                let refresh = self.outcome(EventTrialOutcome::RefreshFailure);
+                let imp_leak = self.outcome(EventTrialOutcome::ImpLeak);
+                let vehicle_crush = self.outcome(EventTrialOutcome::VehicleCrush);
+                let imitator_ice_loss = self.outcome(EventTrialOutcome::ImitatorIceLoss);
+                let failure = home_total
+                    .saturating_add(garg_smash)
+                    .saturating_add(refresh)
+                    .saturating_add(imp_leak)
+                    .saturating_add(vehicle_crush)
+                    .saturating_add(imitator_ice_loss);
+                EventMeasureReport::DamageNarrow(DamageNarrowReport {
+                    common,
+                    narrow_pass: PassStats::new(success, failure),
+                    damage: DamageStats {
+                        total: self.damage_total,
+                        by_source: source_map(self.damage_by_source),
+                        by_plant: plant_map(self.damage_by_plant),
+                    },
+                    failures: NarrowFailures {
+                        garg_smash,
+                        home_total,
+                        pogo_home,
+                        refresh,
+                        imp_leak,
+                        vehicle_crush,
+                        imitator_ice_loss,
+                    },
+                    imp_leak: Some(self.imp_leak.report(
+                        imp_leak_config.enabled(),
+                        imp_leak_config.threshold_cs(),
+                        imp_leak,
+                    )),
+                    vehicle_crush_sample: self.vehicle_crush_sample.map(PlantLossSample::report),
+                    imitator_ice_loss_sample: self.imitator_ice_loss_sample.map(PlantLossSample::report),
+                })
+            }
+            EventMode::BroadPass => {
+                let success = self.outcome(EventTrialOutcome::ObjectiveReached);
+                let failure = self
+                    .outcome(EventTrialOutcome::Home)
+                    .saturating_add(self.outcome(EventTrialOutcome::PogoHome));
+                EventMeasureReport::BroadPass(BroadPassReport {
+                    common,
+                    broad_pass: PassStats::new(success, failure),
+                    home: HomeStats {
+                        entries: self.home_entries,
+                        by_row: row_map(self.home_by_row),
+                        first_entry_time: self.first_home_time,
+                    },
+                })
+            }
+            EventMode::Smash => EventMeasureReport::Smash(SmashReport {
+                common,
+                smash: EventDistribution {
+                    trials: valid_trials,
+                    events: self.smash_events,
+                    probability: report::ratio_or_zero(self.outcome(EventTrialOutcome::GargSmash), valid_trials),
+                    by_grid: grid_map(self.smash_by_grid),
+                },
+            }),
+            EventMode::Pogo => EventMeasureReport::Pogo(PogoReport {
+                common,
+                pogo_home: PogoStats {
+                    trials: valid_trials,
+                    entries: self.pogo_entries,
+                    probability: report::ratio_or_zero(self.outcome(EventTrialOutcome::PogoHome), valid_trials),
+                    by_row: row_map(self.pogo_by_row),
+                    first_entry_time: self.first_pogo_time,
+                },
+            }),
+        }
+    }
+}
+
+fn add_u64<const N: usize>(target: &mut [u64; N], source: &[u64; N]) {
+    for (target, source) in target.iter_mut().zip(source) {
+        *target = target.saturating_add(*source);
+    }
+}
+
+fn add_i64<const N: usize>(target: &mut [i64; N], source: &[i64; N]) {
+    for (target, source) in target.iter_mut().zip(source) {
+        *target = target.saturating_add(*source);
+    }
+}
+
+const fn min_option(left: Option<u64>, right: Option<u64>) -> Option<u64> {
+    match (left, right) {
+        (Some(left), Some(right)) => Some(if left < right { left } else { right }),
+        (Some(value), None) | (None, Some(value)) => Some(value),
+        (None, None) => None,
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum TrialStatus {
+    #[default]
+    Idle,
+    Active,
+    Complete(EventTrialOutcome),
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ActiveFrame {
+    counter: i32,
+    terminal: Option<EventTrialOutcome>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct PendingCompletion {
+    outcome: EventTrialOutcome,
+    level_ended: bool,
+}
+
+pub struct EventMeasurementState {
+    config: EventMeasureConfig,
+    artifact_config: EventMeasureConfig,
+    initialized: bool,
+    status: TrialStatus,
+    origin_counter: i32,
+    board_epoch: Option<u64>,
+    frame: Option<ActiveFrame>,
+    last_frame_delta: u32,
+    pending_completion: Option<PendingCompletion>,
+    completed_by_level_end: bool,
+    trial: EventMeasurementPartial,
+    partial: EventMeasurementPartial,
+    imp_tracker: Option<ImpLeakTracker>,
+    trial_identity: (u64, u32, u64),
+}
+
+impl EventMeasurementState {
+    #[must_use]
+    pub fn new(config: EventMeasureConfig) -> Self {
+        let imp_enabled = config.mode == EventMode::DamageNarrow && config.imp_leak.enabled();
+        let imp_threshold = config.imp_leak.threshold_cs();
+        let mut trial = EventMeasurementPartial::default();
+        let mut partial = EventMeasurementPartial::default();
+        if imp_enabled {
+            trial.imp_leak.reserve(false);
+            partial.imp_leak.reserve(true);
+        }
+        Self {
+            artifact_config: config.clone(),
+            config,
+            initialized: false,
+            status: TrialStatus::Idle,
+            origin_counter: 0,
+            board_epoch: None,
+            frame: None,
+            last_frame_delta: 0,
+            pending_completion: None,
+            completed_by_level_end: false,
+            trial,
+            partial,
+            imp_tracker: imp_enabled.then(|| ImpLeakTracker::new(imp_threshold)),
+            trial_identity: (0, 0, 0),
+        }
+    }
+
+    #[must_use]
+    pub const fn mode(&self) -> MeasureMode {
+        self.config.mode.mode()
+    }
+
+    #[must_use]
+    pub const fn initialized(&self) -> bool {
+        self.initialized
+    }
+
+    pub fn initialize(&mut self) -> Result<(), ProtectionGridResolveError>
+    where
+        rsvz_current::CurrentBackend: PlantReadBackend,
+    {
+        resolve_event_measure_config(&mut self.config)?;
+        self.initialized = true;
+        Ok(())
+    }
+
+    #[must_use]
+    pub fn interest(&self) -> EventInterest {
+        let base = match self.config.mode {
+            EventMode::DamageNarrow => EventInterest::PLANT_EFFECT.union(EventInterest::HOME_ENTRY),
+            EventMode::BroadPass | EventMode::Pogo => EventInterest::HOME_ENTRY,
+            EventMode::Smash => EventInterest::GARGANTUAR,
+        };
+        if self.imp_tracker.is_some() {
+            base.union(EventInterest::IMP_DIAGNOSTIC)
+        } else {
+            base
+        }
+    }
+
+    pub fn start_trial(&mut self, main_counter: i32) {
+        self.start_trial_with_identity(main_counter, 0, 0, 0);
+    }
+
+    fn start_trial_with_identity(&mut self, main_counter: i32, trial_sequence: u64, seed: u32, world_epoch: u64) {
+        if self.status == TrialStatus::Active {
+            self.commit(EventTrialOutcome::Invalid);
+        }
+        self.status = TrialStatus::Active;
+        self.origin_counter = main_counter;
+        self.board_epoch = None;
+        self.frame = None;
+        self.last_frame_delta = 0;
+        self.pending_completion = None;
+        self.completed_by_level_end = false;
+        self.trial.outcomes.fill(0);
+        self.trial.damage_total = 0;
+        self.trial.damage_by_source.fill(0);
+        self.trial.damage_by_plant.fill(0);
+        self.trial.home_entries = 0;
+        self.trial.home_by_row.fill(0);
+        self.trial.first_home_time = None;
+        self.trial.pogo_entries = 0;
+        self.trial.pogo_by_row.fill(0);
+        self.trial.first_pogo_time = None;
+        self.trial.smash_events = 0;
+        self.trial.smash_by_grid.fill(0);
+        self.trial.imp_leak.clear_trial();
+        self.trial.vehicle_crush_sample = None;
+        self.trial.imitator_ice_loss_sample = None;
+        self.trial_identity = (trial_sequence, seed, world_epoch);
+        if let Some(tracker) = &mut self.imp_tracker {
+            tracker.start_trial(trial_sequence, seed, world_epoch);
+        }
+    }
+
+    #[must_use]
+    pub const fn trial_active(&self) -> bool {
+        matches!(self.status, TrialStatus::Active)
+    }
+
+    fn completed(&self) -> Option<EventTrialOutcome> {
+        match self.status {
+            TrialStatus::Complete(outcome) => Some(outcome),
+            TrialStatus::Idle | TrialStatus::Active => None,
+        }
+    }
+
+    fn completed_by_level_end(&self) -> bool {
+        self.completed_by_level_end && self.completed().is_some()
+    }
+
+    pub fn seal_invalid(&mut self) -> bool {
+        if !self.trial_active() {
+            return false;
+        }
+        self.commit(EventTrialOutcome::Invalid);
+        true
+    }
+
+    fn finish(&mut self, outcome: EventTrialOutcome) {
+        if self.trial_active() {
+            self.completed_by_level_end = false;
+            self.commit(outcome);
+        }
+    }
+
+    fn finish_pending(&mut self, clocks: &WaveClockState) {
+        if self.pending_completion.is_some() {
+            self.resolve_pending_imp_cohorts(clocks);
+            if self
+                .imp_tracker
+                .as_ref()
+                .is_some_and(ImpLeakTracker::has_critical_overflow)
+            {
+                self.pending_completion = None;
+                self.commit(EventTrialOutcome::Invalid);
+                return;
+            }
+        }
+        if let Some(pending) = self.pending_completion.take() {
+            for sample in [
+                &mut self.trial.vehicle_crush_sample,
+                &mut self.trial.imitator_ice_loss_sample,
+            ]
+            .into_iter()
+            .flatten()
+            {
+                sample.resolve_time(clocks);
+            }
+            self.completed_by_level_end = pending.level_ended;
+            self.commit(pending.outcome);
+        }
+    }
+
+    fn resolve_pending_imp_cohorts(&mut self, clocks: &WaveClockState) {
+        if let Some(tracker) = &mut self.imp_tracker {
+            tracker.resolve_pending_cohorts(clocks, &mut self.trial.imp_leak);
+        }
+    }
+
+    fn begin_frame(&mut self, board_epoch: u64, main_counter: i32) {
+        if !self.trial_active() {
+            return;
+        }
+        if self.frame.is_some() || self.pending_completion.is_some() {
+            self.commit(EventTrialOutcome::Invalid);
+            return;
+        }
+        if self.board_epoch.is_none() {
+            self.board_epoch = Some(board_epoch);
+        }
+        let delta = relative_elapsed(self.origin_counter, main_counter);
+        if self.board_epoch != Some(board_epoch) || delta.is_none_or(|delta| delta < self.last_frame_delta) {
+            self.commit(EventTrialOutcome::Invalid);
+            return;
+        }
+        self.last_frame_delta = delta.unwrap_or_default();
+        self.frame = Some(ActiveFrame {
+            counter: main_counter,
+            terminal: None,
+        });
+    }
+
+    fn begin_effect(&mut self, fact: PlantEffectAttemptFact) -> EventDecision {
+        if !self.initialized
+            || !self.trial_active()
+            || self.frame.is_none_or(|frame| frame.counter != fact.main_counter)
+        {
+            return EventDecision::Apply;
+        }
+        if self.config.mode == EventMode::DamageNarrow
+            && fact.raw_kind == PlantKind::Imitator
+            && fact.effective_kind == PlantKind::IceShroom
+        {
+            return EventDecision::Apply;
+        }
+        let protected = protects(&self.config, fact.grid, fact.raw_kind, fact.effective_kind);
+        if let PlantEffectSource::Bite(zombie_id) = fact.source
+            && let Some(tracker) = &mut self.imp_tracker
+        {
+            tracker.note_bite(
+                zombie_id,
+                bite_target(fact.plant_id, fact.raw_kind, fact.effective_kind, fact.grid),
+                protected,
+                fact.main_counter,
+            );
+        }
+        if !matches!(self.config.mode, EventMode::DamageNarrow | EventMode::Smash) || !protected {
+            return EventDecision::Apply;
+        }
+        match fact.source {
+            PlantEffectSource::Gargantuar(_) => self.record_garg_smash(fact.grid),
+            PlantEffectSource::Jack(_) | PlantEffectSource::Bite(_) | PlantEffectSource::Basketball(_)
+                if self.config.mode == EventMode::DamageNarrow =>
+            {
+                self.record_legacy_damage(fact);
+            }
+            PlantEffectSource::Jack(_) | PlantEffectSource::Bite(_) | PlantEffectSource::Basketball(_) => {
+                return EventDecision::Apply;
+            }
+            PlantEffectSource::ZomboniCrush(_) | PlantEffectSource::CatapultCrush(_) | PlantEffectSource::Bungee(_) => {
+                return EventDecision::Apply;
+            }
+        }
+        EventDecision::SuppressByMeasurement
+    }
+
+    fn finish_effect(&mut self, fact: EffectOutcomeFact) {
+        if fact.decision_origin == rsvz_model::EventDecisionOrigin::Measurement
+            && fact.outcome != PlantEffectOutcome::SuppressedByMeasurement
+        {
+            self.commit(EventTrialOutcome::Invalid);
+            return;
+        }
+        if self.config.mode != EventMode::DamageNarrow
+            || !self.trial_active()
+            || !matches!(
+                fact.outcome,
+                PlantEffectOutcome::Killed | PlantEffectOutcome::Squished | PlantEffectOutcome::Stolen
+            )
+        {
+            return;
+        }
+        let key = fact.key;
+        let terminal = if key.raw_kind == PlantKind::Imitator && key.effective_kind == PlantKind::IceShroom {
+            Some(EventTrialOutcome::ImitatorIceLoss)
+        } else if matches!(
+            key.source,
+            PlantEffectSource::ZomboniCrush(_) | PlantEffectSource::CatapultCrush(_)
+        ) && protects(&self.config, key.grid, key.raw_kind, key.effective_kind)
+        {
+            Some(EventTrialOutcome::VehicleCrush)
+        } else {
+            None
+        };
+        if let Some(frame) = &mut self.frame
+            && frame.terminal.is_none()
+        {
+            frame.terminal = terminal;
+            if let Some(terminal) = terminal {
+                let sample = Some(PlantLossSample {
+                    trial_sequence: self.trial_identity.0,
+                    seed: self.trial_identity.1,
+                    world_epoch: self.trial_identity.2,
+                    main_counter: frame.counter,
+                    wave_time: None,
+                    fact: fact.into(),
+                });
+                match terminal {
+                    EventTrialOutcome::VehicleCrush => self.trial.vehicle_crush_sample = sample,
+                    EventTrialOutcome::ImitatorIceLoss => self.trial.imitator_ice_loss_sample = sample,
+                    _ => unreachable!(),
+                }
+            }
+        }
+    }
+
+    fn home_entry(&mut self, fact: HomeEntryFact) {
+        if !self.trial_active() || self.frame.is_none_or(|frame| frame.counter != fact.main_counter) {
+            return;
+        }
+        let Ok(row) = usize::try_from(fact.row) else {
+            self.commit(EventTrialOutcome::Invalid);
+            return;
+        };
+        if row >= BOARD_ROWS {
+            self.commit(EventTrialOutcome::Invalid);
+            return;
+        }
+        let Some(elapsed) = relative_elapsed(self.origin_counter, fact.main_counter).map(u64::from) else {
+            self.commit(EventTrialOutcome::Invalid);
+            return;
+        };
+        self.trial.home_entries = self.trial.home_entries.saturating_add(1);
+        self.trial.home_by_row[row] = self.trial.home_by_row[row].saturating_add(1);
+        self.trial.first_home_time = min_option(self.trial.first_home_time, Some(elapsed));
+        if fact.zombie_kind == ZombieKind::Pogo {
+            self.trial.pogo_entries = self.trial.pogo_entries.saturating_add(1);
+            self.trial.pogo_by_row[row] = self.trial.pogo_by_row[row].saturating_add(1);
+            self.trial.first_pogo_time = min_option(self.trial.first_pogo_time, Some(elapsed));
+        }
+        let terminal = match self.config.mode {
+            EventMode::DamageNarrow | EventMode::BroadPass => Some(if fact.zombie_kind == ZombieKind::Pogo {
+                EventTrialOutcome::PogoHome
+            } else {
+                EventTrialOutcome::Home
+            }),
+            EventMode::Pogo if fact.zombie_kind == ZombieKind::Pogo => Some(EventTrialOutcome::PogoHome),
+            EventMode::Smash | EventMode::Pogo => None,
+        };
+        if let Some(frame) = &mut self.frame
+            && frame.terminal.is_none()
+        {
+            frame.terminal = terminal;
+        }
+    }
+
+    fn gargantuar_spawned(&mut self, fact: GargantuarSpawnedFact) {
+        if self.trial_active()
+            && self.frame.is_some_and(|frame| frame.counter == fact.main_counter)
+            && let Some(tracker) = &mut self.imp_tracker
+        {
+            tracker.note_gargantuar_spawned(fact);
+        }
+    }
+
+    fn imp_thrown(&mut self, fact: ImpThrownFact) {
+        if self.trial_active()
+            && self.frame.is_some_and(|frame| frame.counter == fact.main_counter)
+            && let Some(tracker) = &mut self.imp_tracker
+        {
+            tracker.note_imp_thrown(fact);
+        }
+    }
+
+    fn gargantuar_ash_hit(&mut self, fact: GargantuarAshHitFact) {
+        if self.trial_active()
+            && self.frame.is_some_and(|frame| frame.counter == fact.main_counter)
+            && let Some(tracker) = &mut self.imp_tracker
+        {
+            tracker.note_ash_hit(fact);
+        }
+    }
+
+    fn sample_imp_leak(&mut self, main_counter: i32, clocks: &WaveClockState) -> RuntimeResult<()>
+    where
+        rsvz_current::CurrentBackend: PlantReadBackend + ZombieRawFactsBackend + ZombieStateBackend,
+    {
+        if !self.trial_active() || self.pending_completion.is_some() {
+            return Ok(());
+        }
+        let Some(tracker) = &mut self.imp_tracker else {
+            return Ok(());
+        };
+        match tracker.sample(
+            main_counter,
+            clocks,
+            &mut self.trial.imp_leak,
+            &mut self.partial.imp_leak,
+        )? {
+            SampleOutcome::Continue => {}
+            SampleOutcome::Invalid => self.commit(EventTrialOutcome::Invalid),
+            SampleOutcome::ImpLeak => self.finish(EventTrialOutcome::ImpLeak),
+        }
+        Ok(())
+    }
+
+    fn end_frame(&mut self, status: EventFrameStatus) {
+        if !self.trial_active() {
+            return;
+        }
+        let Some(frame) = self.frame.take() else {
+            self.commit(EventTrialOutcome::Invalid);
+            return;
+        };
+        let terminal = frame.terminal;
+        let outcome = terminal.or(match status {
+            BattleStatus::ObjectiveReached => Some(EventTrialOutcome::ObjectiveReached),
+            BattleStatus::Lost | BattleStatus::Ended
+                if matches!(self.config.mode, EventMode::Smash | EventMode::Pogo) =>
+            {
+                Some(EventTrialOutcome::GameOver)
+            }
+            BattleStatus::Lost | BattleStatus::Ended => Some(EventTrialOutcome::Invalid),
+            BattleStatus::Running | BattleStatus::Unknown => None,
+        });
+        self.pending_completion = outcome.map(|outcome| PendingCompletion {
+            outcome,
+            level_ended: terminal.is_none() && matches!(status, BattleStatus::ObjectiveReached | BattleStatus::Ended),
+        });
+    }
+
+    fn record_legacy_damage(&mut self, fact: PlantEffectAttemptFact) {
+        let (source, loss) = match (fact.source, fact.effect) {
+            (PlantEffectSource::Jack(_), PlantEffect::InstantKill) => (0, fact.max_hp.max(0)),
+            (PlantEffectSource::Bite(_), PlantEffect::HpDamage { native_requested }) => (1, native_requested.max(0)),
+            (PlantEffectSource::Basketball(_), PlantEffect::HpDamage { .. }) => (2, fact.max_hp.max(0)),
+            _ => return,
+        };
+        let loss = i64::from(loss);
+        self.trial.damage_total = self.trial.damage_total.saturating_add(loss);
+        self.trial.damage_by_source[source] = self.trial.damage_by_source[source].saturating_add(loss);
+        let plant = fact.raw_kind as usize;
+        if plant < PLANT_KIND_COUNT {
+            self.trial.damage_by_plant[plant] = self.trial.damage_by_plant[plant].saturating_add(loss);
+        }
+    }
+
+    fn record_garg_smash(&mut self, grid: Grid) {
+        let (Ok(row), Ok(col)) = (usize::try_from(grid.row), usize::try_from(grid.col)) else {
+            self.commit(EventTrialOutcome::Invalid);
+            return;
+        };
+        if row >= BOARD_ROWS || col >= BOARD_COLS {
+            self.commit(EventTrialOutcome::Invalid);
+            return;
+        }
+        self.trial.smash_events = self.trial.smash_events.saturating_add(1);
+        let index = row * BOARD_COLS + col;
+        self.trial.smash_by_grid[index] = self.trial.smash_by_grid[index].saturating_add(1);
+        if let Some(frame) = &mut self.frame
+            && frame.terminal.is_none()
+        {
+            frame.terminal = Some(EventTrialOutcome::GargSmash);
+        }
+    }
+
+    fn commit(&mut self, outcome: EventTrialOutcome) {
+        if !self.trial_active() {
+            return;
+        }
+        if let Some(tracker) = &mut self.imp_tracker {
+            let end = match outcome {
+                EventTrialOutcome::ObjectiveReached => TrialEnd::ObjectiveReached,
+                EventTrialOutcome::ImpLeak => TrialEnd::ImpLeak,
+                EventTrialOutcome::Invalid => TrialEnd::Invalid,
+                _ => TrialEnd::OtherFailure,
+            };
+            tracker.finish_trial(end, &mut self.trial.imp_leak);
+        }
+        self.partial.outcomes[outcome.index()] = self.partial.outcomes[outcome.index()].saturating_add(1);
+        if outcome.is_valid() {
+            self.partial.merge_from(&self.trial);
+        } else {
+            self.partial.imp_leak.merge_drops_from(&self.trial.imp_leak);
+        }
+        self.status = TrialStatus::Complete(outcome);
+        self.frame = None;
+        self.pending_completion = None;
+    }
+
+    fn trial_counts(
+        &self, limit: MeasureLimit, end: MeasurementEnd,
+    ) -> Result<MeasurementTrialCounts, MeasurementTrialCountError> {
+        if self.trial_active() {
+            return Err(MeasurementTrialCountError::ActiveTrial);
+        }
+        let attempted_trials = self.partial.attempted_trials();
+        let invalid_trials = self.partial.invalid_trials();
+        let requested_trials = limit.trial_target();
+        let aborted_unrun_trials = match (requested_trials, end) {
+            (Some(requested), MeasurementEnd::Completed) if requested != attempted_trials => {
+                return Err(MeasurementTrialCountError::CompletedTrialCountMismatch {
+                    requested_trials: requested,
+                    attempted_trials,
+                });
+            }
+            (Some(requested), MeasurementEnd::Aborted) if attempted_trials > requested => {
+                return Err(MeasurementTrialCountError::AttemptedExceedsRequested {
+                    requested_trials: requested,
+                    attempted_trials,
+                });
+            }
+            (Some(requested), MeasurementEnd::Aborted) => requested - attempted_trials,
+            (Some(_), MeasurementEnd::Completed) | (None, _) => 0,
+        };
+        Ok(MeasurementTrialCounts {
+            requested_trials,
+            attempted_trials,
+            invalid_trials,
+            aborted_unrun_trials,
+        })
+    }
+
+    #[cfg(test)]
+    fn artifact(
+        &self, limit: MeasureLimit, end: MeasurementEnd,
+    ) -> Result<SessionArtifact, MeasurementTrialCountError> {
+        self.artifact_with_run(limit, end, MeasurementRunConfig::new(limit, 0, SessionShard::default()))
+    }
+
+    #[cfg(test)]
+    fn artifact_with_run(
+        &self, limit: MeasureLimit, end: MeasurementEnd, run: MeasurementRunConfig,
+    ) -> Result<SessionArtifact, MeasurementTrialCountError> {
+        let counts = self.trial_counts(limit, end)?;
+        Ok(EventMeasureArtifact {
+            config: self.artifact_config.clone(),
+            partial: self.partial.clone(),
+            counts,
+            run,
+        }
+        .into_session_artifact())
+    }
+
+    fn take_artifact_with_run(
+        &mut self, limit: MeasureLimit, end: MeasurementEnd, run: MeasurementRunConfig,
+    ) -> Result<SessionArtifact, MeasurementTrialCountError> {
+        let counts = self.trial_counts(limit, end)?;
+        Ok(EventMeasureArtifact {
+            config: self.artifact_config.clone(),
+            partial: std::mem::take(&mut self.partial),
+            counts,
+            run,
+        }
+        .into_session_artifact())
+    }
+}
+
+const fn relative_elapsed(origin: i32, current: i32) -> Option<u32> {
+    let delta = (current as u32).wrapping_sub(origin as u32);
+    if delta < 0x8000_0000 { Some(delta) } else { None }
+}
+
+pub struct SharedEventMeasure {
+    task: Rc<RefCell<EventMeasureTask>>,
+}
+
+impl SharedEventMeasure {
+    #[must_use]
+    pub fn new(task: Rc<RefCell<EventMeasureTask>>) -> Self {
+        Self { task }
+    }
+}
+
+impl InternalEventInterceptor for SharedEventMeasure {
+    fn interest(&self) -> EventInterest {
+        self.task.borrow().state.interest()
+    }
+
+    fn begin_logic_frame(&mut self, board_epoch: u64, main_counter: i32) {
+        self.task.borrow_mut().state.begin_frame(board_epoch, main_counter);
+    }
+
+    fn begin_plant_effect(&mut self, fact: PlantEffectAttemptFact) -> EventDecision {
+        self.task.borrow_mut().state.begin_effect(fact)
+    }
+
+    fn finish_plant_effect(&mut self, fact: EffectOutcomeFact) {
+        self.task.borrow_mut().state.finish_effect(fact);
+    }
+
+    fn emit_home_entry(&mut self, fact: HomeEntryFact) {
+        self.task.borrow_mut().state.home_entry(fact);
+    }
+
+    fn emit_gargantuar_spawned(&mut self, fact: GargantuarSpawnedFact) {
+        self.task.borrow_mut().state.gargantuar_spawned(fact);
+    }
+
+    fn emit_imp_thrown(&mut self, fact: ImpThrownFact) {
+        self.task.borrow_mut().state.imp_thrown(fact);
+    }
+
+    fn emit_gargantuar_ash_hit(&mut self, fact: GargantuarAshHitFact) {
+        self.task.borrow_mut().state.gargantuar_ash_hit(fact);
+    }
+
+    fn end_logic_frame(&mut self, status: EventFrameStatus) {
+        self.task.borrow_mut().state.end_frame(status);
+    }
+}
+
+pub struct EventMeasureTask {
+    state: EventMeasurementState,
+    run: TrialRun,
+    world_epoch: u64,
+    rounds_seen: u64,
+    finished: bool,
+}
+
+pub enum EventMeasureTaskControl {
+    Continue,
+    Reset(WorldResetConfig),
+    Complete(SessionArtifact),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum EventMeasureTaskError {
+    #[error("completed-round counter moved backwards")]
+    CompletedRoundsMovedBackwards,
+    #[error("completed-round boundary does not match one active event trial")]
+    CompletedRoundBoundaryMismatch,
+    #[error("event measurement reached a trial boundary without a completed trial")]
+    MissingCompletedTrial,
+    #[error("level ended before the configured measurement window endpoint was reached")]
+    WindowEndUnreached,
+    #[error(transparent)]
+    TrialCount(#[from] MeasurementTrialCountError),
+}
+
+impl EventMeasureTask {
+    pub(crate) fn publish_progress(&self, force: bool) {
+        if !crate::diagnostics::progress_due(force) {
+            return;
+        }
+        let partial = &self.state.partial;
+        let completed = partial.attempted_trials();
+        let invalid = partial.invalid_trials();
+        let active = u64::from(self.state.trial_active());
+        crate::diagnostics::progress(
+            &crate::diagnostics::MeasurementProgress {
+                measurement: "event",
+                completed,
+                attempted: completed + active,
+                valid: completed.saturating_sub(invalid),
+                invalid,
+                incomplete: active,
+                active,
+                remaining: self.run.limit.trial_target().map(|n| n.saturating_sub(completed)),
+                successes: partial.outcome(EventTrialOutcome::ObjectiveReached),
+                ratio_name: "pass_rate",
+                ratio_numerator: partial.outcome(EventTrialOutcome::ObjectiveReached),
+                ratio_denominator: completed.saturating_sub(invalid),
+                damage: partial.damage_total,
+                completed_rounds: crate::session::completed_rounds(),
+            },
+            force,
+        );
+    }
+
+    #[must_use]
+    pub fn new(
+        limit: MeasureLimit, config: EventMeasureConfig, completed_rounds: u32, shard: SessionShard, rounds_seen: u64,
+    ) -> Self {
+        Self {
+            state: EventMeasurementState::new(config),
+            run: TrialRun::new(limit, completed_rounds, shard),
+            world_epoch: u64::MAX,
+            rounds_seen,
+            finished: false,
+        }
+    }
+
+    pub fn set_artifact_limit(&mut self, limit: MeasureLimit) {
+        self.run.artifact_limit = limit;
+    }
+
+    #[must_use]
+    pub const fn initialized(&self) -> bool {
+        self.state.initialized()
+    }
+
+    pub fn initialize(&mut self) -> Result<(), ProtectionGridResolveError>
+    where
+        rsvz_current::CurrentBackend: PlantReadBackend,
+    {
+        self.state.initialize()
+    }
+
+    #[must_use]
+    pub fn next_reset_config(&self) -> WorldResetConfig {
+        self.run.next_reset_config()
+    }
+
+    pub fn tick(
+        &mut self, world_epoch: u64, main_counter: i32, completed_rounds: u64,
+        interrupted: Option<EventMeasureInterruption>,
+    ) -> Result<EventMeasureTaskControl, EventMeasureTaskError> {
+        self.tick_at(
+            world_epoch,
+            Some(main_counter),
+            &WaveClockState::new(),
+            completed_rounds,
+            interrupted,
+        )
+    }
+
+    pub fn tick_at(
+        &mut self, world_epoch: u64, current_clock: Option<i32>, clocks: &WaveClockState, completed_rounds: u64,
+        interrupted: Option<EventMeasureInterruption>,
+    ) -> Result<EventMeasureTaskControl, EventMeasureTaskError> {
+        let completed_round_boundary = if completed_rounds != self.rounds_seen {
+            let Some(delta) = completed_rounds.checked_sub(self.rounds_seen) else {
+                return Err(EventMeasureTaskError::CompletedRoundsMovedBackwards);
+            };
+            self.rounds_seen = completed_rounds;
+            if delta != 1 || self.state.status == TrialStatus::Idle {
+                return Err(EventMeasureTaskError::CompletedRoundBoundaryMismatch);
+            }
+            true
+        } else {
+            false
+        };
+        self.ensure_trial(world_epoch, current_clock);
+        if let Some(interrupted) = interrupted {
+            let mut outcome = match interrupted {
+                EventMeasureInterruption::RecoverableError => EventTrialOutcome::Invalid,
+                EventMeasureInterruption::TimingViolation if self.state.mode() == MeasureMode::DamageNarrow => {
+                    EventTrialOutcome::RefreshFailure
+                }
+                EventMeasureInterruption::TimingViolation => EventTrialOutcome::Invalid,
+            };
+            if outcome == EventTrialOutcome::RefreshFailure {
+                self.state.resolve_pending_imp_cohorts(clocks);
+                if self
+                    .state
+                    .imp_tracker
+                    .as_ref()
+                    .is_some_and(ImpLeakTracker::has_critical_overflow)
+                {
+                    outcome = EventTrialOutcome::Invalid;
+                }
+            }
+            self.state.finish(outcome);
+        }
+        self.state.finish_pending(clocks);
+        let window_reached = measurement_window_reached(self.state.config.window_end, current_clock, clocks);
+        if self.state.completed().is_some() {
+            if self.state.completed_by_level_end() && window_reached == Some(false) {
+                return Err(EventMeasureTaskError::WindowEndUnreached);
+            }
+            return self.finish_boundary();
+        }
+        if window_reached == Some(true) {
+            self.state.finish(EventTrialOutcome::ObjectiveReached);
+            return self.finish_boundary();
+        }
+        if completed_round_boundary {
+            if window_reached == Some(false) {
+                return Err(EventMeasureTaskError::WindowEndUnreached);
+            }
+            self.state.finish(EventTrialOutcome::ObjectiveReached);
+            return self.finish_boundary();
+        }
+        Ok(EventMeasureTaskControl::Continue)
+    }
+
+    pub fn sample_imp_leak(
+        &mut self, world_epoch: u64, current_clock: Option<i32>, clocks: &WaveClockState,
+    ) -> RuntimeResult<()>
+    where
+        rsvz_current::CurrentBackend: PlantReadBackend + ZombieRawFactsBackend + ZombieStateBackend,
+    {
+        self.ensure_trial(world_epoch, current_clock);
+        self.state.sample_imp_leak(current_clock.unwrap_or_default(), clocks)
+    }
+
+    fn ensure_trial(&mut self, world_epoch: u64, current_clock: Option<i32>) {
+        if world_epoch == self.world_epoch {
+            return;
+        }
+        self.world_epoch = world_epoch;
+        let sequence = self.run.sequence();
+        let seed = self.run.next_reset_config().seed;
+        self.state
+            .start_trial_with_identity(current_clock.unwrap_or_default(), sequence, seed, world_epoch);
+    }
+
+    fn finish_boundary(&mut self) -> Result<EventMeasureTaskControl, EventMeasureTaskError> {
+        if self.state.completed().is_none() {
+            return Err(EventMeasureTaskError::MissingCompletedTrial);
+        }
+        if self.run.finish_trial(self.state.partial.attempted_trials()) {
+            self.publish_progress(true);
+            let artifact = self.state.take_artifact_with_run(
+                self.run.limit,
+                MeasurementEnd::Completed,
+                self.run.artifact_config(),
+            )?;
+            self.finished = true;
+            return Ok(EventMeasureTaskControl::Complete(artifact));
+        }
+        Ok(EventMeasureTaskControl::Reset(self.next_reset_config()))
+    }
+
+    pub fn seal_active_invalid(&mut self) -> bool {
+        self.state.seal_invalid()
+    }
+
+    #[must_use]
+    pub const fn is_finished(&self) -> bool {
+        self.finished
+    }
+
+    pub fn aborted_artifact(&mut self) -> Result<SessionArtifact, MeasurementTrialCountError> {
+        self.state
+            .take_artifact_with_run(self.run.limit, MeasurementEnd::Aborted, self.run.artifact_config())
+    }
+
+    #[must_use]
+    pub fn empty_artifact(requested_trials: Option<u64>, config: EventMeasureConfig) -> SessionArtifact {
+        Self::empty_artifact_with_run(
+            requested_trials,
+            config,
+            MeasureLimit::trials(requested_trials.unwrap_or(1).max(1))
+                .expect("the normalized empty-artifact trial count is nonzero"),
+            0,
+            SessionShard::default(),
+        )
+    }
+
+    #[must_use]
+    pub fn empty_artifact_with_run(
+        requested_trials: Option<u64>, config: EventMeasureConfig, artifact_limit: MeasureLimit, completed_rounds: u32,
+        shard: SessionShard,
+    ) -> SessionArtifact {
+        EventMeasureArtifact {
+            config,
+            partial: EventMeasurementPartial::default(),
+            counts: MeasurementTrialCounts {
+                requested_trials,
+                attempted_trials: 0,
+                invalid_trials: 0,
+                aborted_unrun_trials: requested_trials.unwrap_or(0),
+            },
+            run: MeasurementRunConfig::new(artifact_limit, completed_rounds, shard),
+        }
+        .into_session_artifact()
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EventMeasureInterruption {
+    RecoverableError,
+    TimingViolation,
+}
+
+struct EventMeasureArtifact {
+    config: EventMeasureConfig,
+    partial: EventMeasurementPartial,
+    counts: MeasurementTrialCounts,
+    run: MeasurementRunConfig,
+}
+
+impl EventMeasureArtifact {
+    fn into_session_artifact(self) -> SessionArtifact {
+        SessionArtifact::new(self, merge_event_measure_artifacts, write_event_measure_artifact)
+    }
+}
+
+fn merge_event_measure_artifacts(target: &mut EventMeasureArtifact, source: EventMeasureArtifact) -> RuntimeResult<()> {
+    if target.config != source.config || target.run != source.run {
+        return Err(RuntimeError::new(
+            "cannot merge event measurement artifacts with different mode or configuration",
+        ));
+    }
+    target.partial.merge_from(&source.partial);
+    target.counts.requested_trials = match (target.counts.requested_trials, source.counts.requested_trials) {
+        (Some(target), Some(source)) => Some(target.saturating_add(source)),
+        (None, None) => None,
+        _ => {
+            return Err(RuntimeError::new(
+                "cannot merge trial- and duration-limited event measurement artifacts",
+            ));
+        }
+    };
+    target.counts.attempted_trials = target
+        .counts
+        .attempted_trials
+        .saturating_add(source.counts.attempted_trials);
+    target.counts.invalid_trials = target
+        .counts
+        .invalid_trials
+        .saturating_add(source.counts.invalid_trials);
+    target.counts.aborted_unrun_trials = target
+        .counts
+        .aborted_unrun_trials
+        .saturating_add(source.counts.aborted_unrun_trials);
+    Ok(())
+}
+
+fn write_event_measure_artifact(artifact: &EventMeasureArtifact, writer: &mut dyn Write) -> io::Result<()> {
+    let report = artifact.partial.report_with_window(
+        artifact.config.mode,
+        artifact.counts,
+        artifact.config.window_end,
+        artifact.config.imp_leak,
+    );
+    serde_json::to_writer(writer, &report).map_err(io::Error::other)
+}
+
+fn source_map(values: [i64; DAMAGE_SOURCE_COUNT]) -> BTreeMap<String, i64> {
+    ["jack_explosion", "zombie_chew", "catapult_basket"]
+        .into_iter()
+        .zip(values)
+        .filter(|(_, value)| *value != 0)
+        .map(|(name, value)| (name.to_owned(), value))
+        .collect()
+}
+
+fn plant_map(values: [i64; PLANT_KIND_COUNT]) -> BTreeMap<String, i64> {
+    PlantKind::ALL
+        .into_iter()
+        .zip(values)
+        .filter(|(_, value)| *value != 0)
+        .map(|(kind, value)| (kind.report_name().to_owned(), value))
+        .collect()
+}
+
+fn row_map(values: [u64; BOARD_ROWS]) -> BTreeMap<String, u64> {
+    values
+        .into_iter()
+        .enumerate()
+        .filter(|(_, value)| *value != 0)
+        .map(|(row, value)| ((row + 1).to_string(), value))
+        .collect()
+}
+
+fn grid_map(values: [u64; BOARD_GRIDS]) -> BTreeMap<String, u64> {
+    values
+        .into_iter()
+        .enumerate()
+        .filter(|(_, value)| *value != 0)
+        .map(|(index, value)| {
+            let row = index / BOARD_COLS + 1;
+            let col = index % BOARD_COLS + 1;
+            (format!("r{row}c{col}"), value)
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests;
