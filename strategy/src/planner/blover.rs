@@ -12,6 +12,31 @@ fn next_spawn_observed(wave: i32, time: i32, birth: i32, flying: &[Zombie]) -> b
 }
 
 impl Planner {
+    fn football_window(
+        &self, id: ZombieId, col: i32, horizon: u32, f: &Forecast,
+    ) -> prediction::football_contact::Window {
+        use prediction::football_contact::{Window, window};
+        rsvz::with_frame(|board| {
+            let Some(z) = board.zombie(id) else {
+                return Window::Missed;
+            };
+            if z.is_frozen() || z.is_eating() {
+                return Window::Open;
+            }
+            let Some(state) = z.motion_state() else {
+                return Window::Open;
+            };
+            let elapsed = rsvz::timing::clock() - self.scene.now;
+            let ice = f
+                .events
+                .iter()
+                .filter(|e| e.certain && e.kind == prediction::EffectKind::Ice)
+                .map(|e| (e.at - elapsed).max(1))
+                .min();
+            window(&state, z.age(), col, horizon, ice).unwrap_or(Window::Open)
+        })
+    }
+
     pub fn cherry_omitted(&mut self, wave: i32) {
         self.omitted_cherry_births |= wave_bit(wave);
         telemetry::record("blover_birth_plan", &[wave as i64]);
@@ -71,23 +96,36 @@ impl Planner {
     }
 
     /// Only a cheap contact query runs between the usual five-frame observations.
-    pub fn blover_contact_due(&self, wave: i32, time: i32) -> bool {
+    pub fn blover_contact_due(&self, wave: i32, time: i32, f: &Forecast) -> bool {
         let Some(birth) = self.blover_watch_birth else {
             return false;
         };
         if wave <= birth || time < 1 {
             return false;
         }
-        rsvz::with_frame(|board| {
-            board.zombies().any(|z| {
-                z.is_alive()
-                    && z.has_head()
-                    && !z.is_frozen()
-                    && z.row() == 0
-                    && z.kind() == Z::Football
-                    && z.from_wave() + 1 == birth
-                    && (80..=120).contains(&(z.x() as i32))
-            })
+        let col = 2;
+        let edge = (col * 80 - 80) as f32;
+        // Broad-phase only: within one 16-frame walk of the left contact edge.
+        // The cast decision itself uses the actual age/check phase, not pixels.
+        let target = rsvz::with_frame(|board| {
+            board
+                .zombies()
+                .filter(|z| {
+                    z.is_alive()
+                        && z.has_head()
+                        && !z.is_frozen()
+                        && !z.is_eating()
+                        && z.row() == 0
+                        && z.kind() == Z::Football
+                        && z.from_wave() + 1 == birth
+                        && z.x() >= edge
+                        && z.x() <= edge + prediction::max_step(Z::Football) * 16.
+                })
+                .min_by(|a, b| a.x().total_cmp(&b.x()))
+                .map(|z| z.id())
+        });
+        target.is_some_and(|id| {
+            self.football_window(id, col, 16, f) == prediction::football_contact::Window::LastCheckIn(1)
         })
     }
 
@@ -231,7 +269,14 @@ impl Planner {
                         pad.lifetime = self.blover_lifetime(target, f, (1, 2), 200);
                         if pad.lifetime >= 50 {
                             self.blover_reserved_birth = Some(target.wave);
-                            if prediction::contact(target, target.x, pad.rect()) {
+                            // Wake at 1cs resolution near the left contact edge,
+                            // rather than starting the giant's hammer at first contact.
+                            // Urgent visible balloons still use the existing immediate cast.
+                            if prediction::contact(target, target.x, pad.rect())
+                                && (insurance
+                                    || self.football_window(target.id, 2, 16, f)
+                                        == prediction::football_contact::Window::LastCheckIn(1))
+                            {
                                 let before = self.assessment(target, f);
                                 let after = run(target, &self.scene, f, Some(pad));
                                 self.record_choice(target, before, after, pad.pos, Blover, f);
@@ -384,6 +429,7 @@ mod tests {
     use super::*;
     fn football(birth: i32, x: f32) -> Zombie {
         Zombie {
+            age: 0,
             id: ZombieId::from_raw(65536 + birth as u32),
             kind: Z::Football,
             row: 1,

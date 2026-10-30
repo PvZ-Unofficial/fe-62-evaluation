@@ -28,6 +28,29 @@ impl Planner {
         // Compare two interventions under the same prediction assumptions. This
         // never rejects padding because the no-intervention deadline looked later.
         let mut waits = Vec::new();
+        // A stored row-one Puff can lose HP to basketballs before any useful
+        // contact. Compare planting just before the first visible consumer
+        // arrives; do not assume an unobserved future attacker or spare HP.
+        let basketball_wait = if z.row == 1 && z.kind == Z::Football && self.scene.basketball_active(1) {
+            let pad = Pad::new(pos, PuffShroom);
+            let mut first = now.trigger;
+            for actor in self.scene.row_zombies(1).copied().filter(|a| {
+                (a.giant() || matches!(a.kind, Z::Football | Z::Imp)) && prediction::could_contact_pad(*a, pad)
+            }) {
+                let edge = pad.rect().right - 20 - prediction::attack_offsets(actor).0;
+                first = first.min(prediction::first_left_of(
+                    actor,
+                    &self.scene,
+                    f,
+                    edge + actor.rect.right - actor.x as i32,
+                    751,
+                ));
+            }
+            (first > 25 && first < 751).then_some(first - 20)
+        } else {
+            None
+        };
+
         if z.frozen > 0 {
             waits.push(z.frozen);
         }
@@ -52,6 +75,10 @@ impl Planner {
             }
         }
         waits.retain(|&wait| (1..=300).contains(&wait));
+        if let Some(wait) = basketball_wait {
+            waits.push(wait);
+        }
+
         waits.sort_unstable();
         waits.dedup();
         let deadline = if waits.is_empty() {
@@ -303,6 +330,7 @@ mod tests {
             b.finish_card_selection().unwrap();
             PeBackend::scope_backend(b, || {
                 let z = Zombie {
+                    age: 0,
                     id: ZombieId::from_raw(65537),
                     kind: Z::GigaGargantuar,
                     row: 5,
@@ -368,6 +396,7 @@ mod tests {
             b.finish_card_selection().unwrap();
             PeBackend::scope_backend(b, || {
                 let first = Zombie {
+                    age: 0,
                     id: ZombieId::from_raw(65537),
                     kind: Z::GigaGargantuar,
                     row: 5,
@@ -428,6 +457,7 @@ mod tests {
                     .into_iter()
                     .enumerate()
                     .map(|(i, x)| Zombie {
+                        age: 0,
                         id: ZombieId::from_raw(65537 + i as u32),
                         kind: Z::GigaGargantuar,
                         row: 5,

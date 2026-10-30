@@ -9,6 +9,7 @@ use rsvz::core::model::{
 use rsvz::core::zombie_motion::vanilla_track_frames;
 use std::collections::HashMap;
 use std::sync::OnceLock;
+pub(crate) mod football_contact;
 pub(crate) mod imp_landing;
 mod projectiles;
 
@@ -35,6 +36,7 @@ fn hammer_already_landed(progress: f32, chilled: bool) -> bool {
 
 #[derive(Clone, Copy, Debug)]
 pub struct Zombie {
+    pub age: i32,
     pub id: ZombieId,
     pub kind: Z,
     pub row: i32,
@@ -221,6 +223,7 @@ impl Scene {
                     first.1 = now;
                 }
                 self.zombies.push(Zombie {
+                    age: b.zombie_age(z),
                     id,
                     kind,
                     row,
@@ -320,6 +323,10 @@ impl Scene {
     pub fn contains_zombie(&self, id: ZombieId) -> bool {
         self.cold.get(&id).is_some_and(|entry| entry.3 == self.now)
     }
+    pub fn basketball_active(&self, row: i32) -> bool {
+        self.projectiles.active(row)
+    }
+
     pub fn projectile_key(&self, row: i32) -> u64 {
         if self
             .plants
@@ -963,6 +970,7 @@ pub fn simulate_action(z: Zombie, scene: &Scene, forecast: &Forecast, extra: Opt
 
 fn plant_observer(row: i32) -> Zombie {
     Zombie {
+        age: 0,
         id: ZombieId::from_raw(0),
         kind: Z::GigaGargantuar,
         row,
@@ -2354,6 +2362,7 @@ fn simulate_state(
     }
     if let Some(state) = final_state {
         *state = Zombie {
+            age: z.age + dt,
             x,
             rect: z.rect_at(x),
             hp: health,
@@ -2876,6 +2885,7 @@ mod tests {
     #[test]
     fn scheduled_ice_body_waits_for_planting_and_preserves_activation_time() {
         let z = Zombie {
+            age: 0,
             id: ZombieId::from_raw(65537),
             kind: Z::GigaGargantuar,
             row: 6,
@@ -3432,6 +3442,7 @@ mod tests {
 
     fn tail_red(x: f32) -> Zombie {
         Zombie {
+            age: 0,
             id: ZombieId::from_raw(65537),
             kind: Z::GigaGargantuar,
             row: 6,
@@ -4071,6 +4082,7 @@ mod tests {
             let giant = index % 3 != 0;
             let x = 180. + (next() % 36000) as f32 / 100.;
             let z = Zombie {
+                age: 0,
                 id: ZombieId::from_raw(65536),
                 kind: if giant { Z::GigaGargantuar } else { Z::Football },
                 row: 5,
@@ -4181,6 +4193,7 @@ mod tests {
             effect: 0,
         });
         let z = Zombie {
+            age: 0,
             id: ZombieId::from_raw(65537),
             kind: Z::GigaGargantuar,
             row: 5,
@@ -4236,6 +4249,7 @@ mod tests {
             };
             let x = (next() % 104000) as f32 * 0.01 - 200.;
             let z = Zombie {
+                age: 0,
                 id: ZombieId::from_raw(65536),
                 kind: if giant { Z::GigaGargantuar } else { Z::Football },
                 row: 5,

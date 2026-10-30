@@ -36,6 +36,7 @@ mod committed_tests {
     #[test]
     fn takeoff_next_frame_uses_current_target_and_decapitation_boundary() {
         let z = Zombie {
+            age: 0,
             id: ZombieId::from_raw(65537),
             kind: Z::Football,
             row: 6,
@@ -73,6 +74,66 @@ mod committed_tests {
     }
 
     use rsvz::core::model::ContactRect;
+    #[test]
+    fn football_lock_projection_contains_native_bite_phases() {
+        use rsvz::core::backend::*;
+        use rsvz_pvz_emulator_backend::{PeBackend, PeWorldConfig, pe_rs, runner_internal::PeWorldOwner};
+        for age in 0..8 {
+            for x in [240.78, 260.] {
+                let mut world = PeWorldOwner::new_reset(PeWorldConfig {
+                    scene: pe_rs::SceneType::Fog,
+                    initial_sun: 100000,
+                    ..Default::default()
+                })
+                .unwrap()
+                .install_current()
+                .unwrap();
+                let id = world.with_backend(|b| {
+                    b.set_zombie_spawn_stopped(true).unwrap();
+                    b.select_card(sel(Squash).checked().unwrap()).unwrap();
+                    b.finish_card_selection().unwrap();
+                    let z = b.place_zombie(Z::Football, grid((6, 4))).unwrap();
+                    b.zombie_id(z)
+                });
+                for _ in 0..age {
+                    world.update_world().unwrap();
+                }
+                let lift = world.with_backend(|b| {
+                    let z = b.zombie(id).unwrap().unwrap();
+                    b.set_zombie_x(z, rsvz::core::model::I32RepresentableF32::new(x).unwrap())
+                        .unwrap();
+                    let lift = PeBackend::scope_backend(b, || {
+                        let mut scene = Scene::default();
+                        scene.sample(age, -99999);
+                        project(
+                            scene.zombies[0],
+                            &scene,
+                            &Forecast::default(),
+                            (6, 4),
+                            false,
+                            0,
+                            126,
+                            182,
+                            None,
+                        )
+                        .0
+                    });
+                    b.new_plant(sel(Squash).checked().unwrap(), grid((6, 4))).unwrap();
+                    lift
+                });
+                for _ in 0..125 {
+                    world.update_world().unwrap();
+                }
+                let actual = world.with_backend(|b| b.zombie_pos_x(b.zombie(id).unwrap().unwrap()));
+                assert!(
+                    actual >= lift.left - 1. && actual <= lift.right + 1.,
+                    "age={age} x={x}: actual {actual}, [{},{}]",
+                    lift.left,
+                    lift.right
+                );
+            }
+        }
+    }
     #[test]
     fn observed_phase_deadlines_match_native_landing() {
         use rsvz::core::backend::*;
@@ -135,6 +196,7 @@ mod committed_tests {
     #[test]
     fn live_squash_damage_is_shared_and_geometry_bounded() {
         let target = Zombie {
+            age: 0,
             id: ZombieId::from_raw(65537),
             kind: Z::GigaGargantuar,
             row: 5,
@@ -414,6 +476,7 @@ fn project(
     let mut object = z.object;
     let mut hp = z.hp + z.armor;
     let mut was_blocked = z.eating;
+    let mut football_eating = z.eating;
     let mut uncertain = matches!(z.kind, Z::Catapult | Z::Digger) || z.phase == ZombiePhase::ImpLanding;
     let mut left = x;
     let mut right = x;
@@ -522,7 +585,7 @@ fn project(
             uncertain = true;
         }
         // A triggered Squash is chewable but takes no bite/smash damage until
-        // takeoff. Contact with its real rectangle therefore proves a stop.
+        // takeoff. Football acquisition additionally needs its native prey scan.
         let planned_block = forecast.events.iter().any(|e| {
             e.body_at.is_some_and(|at| at <= dt + wait)
                 && e.at > dt + wait
@@ -534,7 +597,43 @@ fn project(
             || dt < launch_at && prediction::contact(z, left, pad.rect()) && prediction::contact(z, right, pad.rect());
         let mut stopped = freeze > 0;
         if freeze == 0 {
-            if z.kind == Z::Zomboni {
+            if z.kind == Z::Football {
+                let old_left = left;
+                let old_right = right;
+                let other_block = scene.plants.iter().any(|p| {
+                    p.pos.0 == z.row
+                        && !matches!(p.kind, LilyPad | FlowerPot)
+                        && !(p.kind == Squash && p.state >= 5)
+                        && prediction::contact(z, left, p.rect)
+                }) || intervention.is_some_and(|p| {
+                    p.pos.0 == z.row
+                        && dt + wait >= p.plant_at
+                        && dt + wait < p.lifetime
+                        && prediction::contact(z, left, p.rect())
+                });
+                uncertain |= other_block;
+                if !football_eating {
+                    if uncertain {
+                        left -= prediction::max_step(z.kind) * if slow > 0 { 0.5 } else { 1. };
+                    } else {
+                        prediction::walk_kind(&mut x, &mut progress, speed, slow > 0, z.kind);
+                        left = x;
+                        right = x;
+                    }
+                }
+                if (z.age + dt) % if slow > 0 { 8 } else { 4 } == 0 {
+                    let holds = |x| dt < launch_at && prediction::contact(z, x, pad.rect());
+                    // Native prey scans use the pre-movement integer position;
+                    // an edge bite can last one scan before it is released.
+                    let acquired = planned_block || holds(old_left) && holds(old_right);
+                    if football_eating && !acquired {
+                        uncertain = true;
+                        progress = 0.;
+                    }
+                    football_eating = acquired;
+                }
+                stopped = football_eating;
+            } else if z.kind == Z::Zomboni {
                 prediction::zomboni_step(&mut x, &mut speed);
                 left = x;
                 right = x;
@@ -650,6 +749,7 @@ fn project(
     unreachable!()
 }
 fn advance_quiet(z: &mut Zombie) {
+    z.age += 1;
     let rect = z.rect;
     let old = z.x as i32;
     z.chilled = (z.chilled - 1).max(0);
@@ -993,6 +1093,7 @@ mod tests {
     }
     fn actor(kind: Z, x: f32) -> Zombie {
         Zombie {
+            age: 0,
             id: ZombieId::from_raw(65537),
             kind,
             row: 6,
@@ -1025,8 +1126,9 @@ mod tests {
             IMPACT,
             None,
         );
-        assert_eq!((lift.left, lift.right), (100., 100.));
-        assert!(lift.aim_right - lift.aim_left <= 2.);
+        assert!(lift.left < 100. && lift.left > 95.);
+        assert_eq!(lift.left, lift.right);
+        assert!(lift.aim_right - lift.aim_left <= 3.);
         assert!(impact.left < lift.left);
     }
     #[test]

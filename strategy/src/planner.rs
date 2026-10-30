@@ -159,6 +159,7 @@ mod candidate_tests {
         use rsvz::core::model::ContactRect;
         for x in -20..850 {
             let z = Zombie {
+                age: 0,
                 id: ZombieId::from_raw(65537),
                 kind: Z::GigaGargantuar,
                 row: 2,
@@ -202,6 +203,7 @@ mod candidate_tests {
         world.with_backend(|b| {
             PeBackend::scope_backend(b, || {
                 let z = Zombie {
+                    age: 0,
                     id: ZombieId::from_raw(65537),
                     kind: Z::Football,
                     row: 6,
@@ -1674,6 +1676,11 @@ impl Planner {
         // Preserve an earlier real loss elsewhere instead of waiting blindly
         // for one lane's preferred damage position.
         let emergency = self.scene.zombies.iter().copied().any(|z| {
+            if z.kind == Z::Imp && matches!(z.phase, ZombiePhase::ImpGettingThrown | ZombiePhase::ImpLanding) {
+                return prediction::imp_landing::observed_landing(z).is_some_and(|(child, arrival)| {
+                    prediction::simulate_imp_arrival(child, &self.scene, &without, 0, arrival).danger <= wait
+                });
+            }
             z.phase == ZombiePhase::JackInTheBoxPopping
                 || (z.giant() || matches!(z.kind, Z::Football | Z::Imp))
                     && run_until(z, &self.scene, &without, None, wait, 2).danger <= wait

@@ -550,6 +550,7 @@ mod tests {
             }
             PeBackend::scope_backend(b, || {
                 let a = Zombie {
+                    age: 0,
                     id: ZombieId::from_raw(65537),
                     kind: Z::GigaGargantuar,
                     row: 6,
@@ -640,6 +641,7 @@ mod tests {
     #[test]
     fn optional_grouping_must_not_stop_a_jack_outside_the_gloom() {
         let z = Zombie {
+            age: 0,
             id: ZombieId::from_raw(65537),
             kind: Z::JackInTheBox,
             row: 5,
