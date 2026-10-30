@@ -320,6 +320,10 @@ impl Scene {
     pub fn contains_zombie(&self, id: ZombieId) -> bool {
         self.cold.get(&id).is_some_and(|entry| entry.3 == self.now)
     }
+    pub fn basketball_active(&self, row: i32) -> bool {
+        self.projectiles.active(row)
+    }
+
     pub fn projectile_key(&self, row: i32) -> u64 {
         if self
             .plants
