@@ -83,6 +83,7 @@ pub struct Planner {
     omitted_cherry_births: u32,
     blover_handled_births: u32,
     blover_watch_birth: Option<i32>,
+    blover_watch_col: i32,
     blover_reserved_birth: Option<i32>,
     blover_wait_logged: [u8; 21],
 }
@@ -139,6 +140,7 @@ impl Default for Planner {
             omitted_cherry_births: 0,
             blover_handled_births: 0,
             blover_watch_birth: None,
+            blover_watch_col: 2,
             blover_reserved_birth: None,
             blover_wait_logged: [0; 21],
         }

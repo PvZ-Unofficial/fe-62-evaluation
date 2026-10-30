@@ -66,6 +66,82 @@ impl Planner {
             .min_by(|a, b| a.x.total_cmp(&b.x))
     }
 
+    // Compare two concrete late placements, including native hammer/death,
+    // basketball and shared plant HP. No hypothetical new zombie is introduced.
+    fn football_blover_column(&self, target: Zombie, f: &Forecast) -> i32 {
+        if self.scene.main((1, 1)).is_some()
+            || !legal(sel(Blover), (1, 1))
+            || !self.scene.row_zombies(1).any(|z| z.giant() && z.x < 350.)
+        {
+            return 2;
+        }
+        let members: Vec<_> = self
+            .scene
+            .row_zombies(1)
+            .copied()
+            .filter(|z| z.kind == Z::Football && z.wave == target.wave && z.carried == target.carried)
+            .map(|z| {
+                (
+                    z,
+                    self.cached_outcome(z, f)
+                        .unwrap_or_else(|| run(z, &self.scene, f, None)),
+                )
+            })
+            .filter(|(_, before)| !before.safe())
+            .collect();
+        let score = |col: i32| -> Option<(usize, i32, i64)> {
+            if self.scene.main((1, col)).is_some() || !legal(sel(Blover), (1, col)) {
+                return None;
+            }
+            let mut pad = Pad::new((1, col), Blover);
+            let last_x = col * 80 - 80;
+            if target.x < last_x as f32 {
+                return None;
+            }
+            let due_x = last_x + 3;
+            let wait = if target.x <= due_x as f32 {
+                0
+            } else {
+                prediction::first_left_of(target, &self.scene, f, due_x + target.rect.right - target.x as i32, 751)
+            };
+            if wait >= 751 {
+                return None;
+            }
+            pad.plant_at = wait;
+            pad.lifetime = wait + 251;
+            pad.trigger_window = 2500;
+            pad.order = self.scene.next_plant_order;
+            pad.complete_outcome = true;
+            for giant in self.scene.row_zombies(1).copied().filter(|z| z.giant()) {
+                let out = run_until(giant, &self.scene, f, Some(pad), wait + 251, 1);
+                pad.lifetime = pad.lifetime.min(out.impact);
+            }
+            if pad.lifetime < wait + 50 {
+                return None;
+            }
+            let mut cleared = 0;
+            let mut worst_gain = NEVER;
+            let mut total_gain = 0i64;
+            let mut contacts = 0;
+            for &(foot, before) in &members {
+                let after = run(foot, &self.scene, f, Some(pad));
+                if after.trigger < pad.lifetime {
+                    contacts += 1;
+                }
+                cleared += usize::from(after.safe());
+                let gain = after.danger.min(prediction::HORIZON) - before.danger.min(prediction::HORIZON);
+                worst_gain = worst_gain.min(gain);
+                total_gain += i64::from(gain);
+            }
+            (contacts > 0).then_some((cleared, worst_gain, total_gain))
+        };
+        match (score(1), score(2)) {
+            (Some(one), Some(two)) if one > two => 1,
+            (Some(_), None) => 1,
+            _ => 2,
+        }
+    }
+
     pub(super) fn puff_reserved_for_blover(&self, z: Zombie) -> bool {
         z.kind == Z::Football && z.row == 1 && !z.carried && self.blover_reserved_birth == Some(z.wave)
     }
@@ -86,7 +162,7 @@ impl Planner {
                     && z.row() == 0
                     && z.kind() == Z::Football
                     && z.from_wave() + 1 == birth
-                    && (80..=83).contains(&(z.x() as i32))
+                    && ((self.blover_watch_col * 80 - 80)..=(self.blover_watch_col * 80 - 77)).contains(&(z.x() as i32))
             })
         })
     }
@@ -209,7 +285,14 @@ impl Planner {
                     }
                 }
             }
-            if target.x < 80. {
+            let col = if insurance {
+                2
+            } else {
+                self.football_blover_column(target, f)
+            };
+            let pos = (1, col);
+            let last_x = (col * 80 - 80) as f32;
+            if target.x < last_x {
                 self.blover_handled_births |= wave_bit(target.wave);
                 telemetry::record(
                     "blover_window_missed",
@@ -221,20 +304,28 @@ impl Planner {
                     self.blover_wait(target, 1, wave);
                 } else if !quota || !ready(sel(Blover)) {
                     self.blover_wait(target, 2, wave);
-                } else if self.scene.main((1, 2)).is_none() && legal(sel(Blover), (1, 2)) {
+                } else if self.scene.main(pos).is_none() && legal(sel(Blover), pos) {
                     self.blover_watch_birth = Some(target.wave);
-                    let mut pad = Pad::new((1, 2), Blover);
+                    self.blover_watch_col = col;
+                    // Keep col1 free for the selected later Blover; release the
+                    // group's Puff immediately after planting, for the follow-up.
+                    if col == 1 {
+                        self.blover_reserved_birth = Some(target.wave);
+                    }
+                    let mut pad = Pad::new(pos, Blover);
                     pad.order = self.scene.next_plant_order;
                     // Reserve this group's first block only while a timely real
                     // Blover is available. Other birth groups can still use Puff.
                     if target.frozen == 0 && prediction::could_contact_pad(target, pad) {
-                        pad.lifetime = self.blover_lifetime(target, f, (1, 2), 200);
+                        pad.lifetime = self.blover_lifetime(target, f, pos, 200);
                         if pad.lifetime >= 50 {
                             self.blover_reserved_birth = Some(target.wave);
                             // Wake at 1cs resolution near the left contact edge,
                             // rather than starting the giant's hammer at first contact.
                             // Urgent visible balloons still use the existing immediate cast.
-                            if prediction::contact(target, target.x, pad.rect()) && (insurance || target.x <= 83.) {
+                            if prediction::contact(target, target.x, pad.rect())
+                                && (insurance || target.x <= last_x + 3.)
+                            {
                                 let before = self.assessment(target, f);
                                 let after = run(target, &self.scene, f, Some(pad));
                                 self.record_choice(target, before, after, pad.pos, Blover, f);
@@ -257,7 +348,7 @@ impl Planner {
                                     );
                                     telemetry::record(
                                         "blover_football",
-                                        &[target.id.raw() as i64, 2, after.trigger as i64],
+                                        &[target.id.raw() as i64, col as i64, after.trigger as i64],
                                     );
                                     self.recheck_planted(target.id, pad.pos, f);
                                     for index in 0..self.scene.zombies.len() {
