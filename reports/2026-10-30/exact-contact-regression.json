@@ -1,0 +1,20 @@
+{
+  "seed": 712929610,
+  "stage": "02-exact-contact",
+  "reproduction_terminal_identical": true,
+  "clock_planted": 39931,
+  "age_before_update": 3387,
+  "x_before": 80.020035,
+  "x_after_acquiring_bite": 79.92576,
+  "eating_at_clock": 39932,
+  "released_at_clock": 39936,
+  "cause": "Cached int_x admits the first bite, but the post-move coordinate is out of contact; next bite check releases it. First implementation tested acquisition rather than sustained interception.",
+  "fix": "Require both the cached pre-move box and the stopped post-move box to overlap; select the last actual check meeting both conditions. Native tests assert sustained eating after 16 frames and rejection of one-frame-later planting.",
+  "tests": {
+    "sustained_cases": 192,
+    "incoming_ice_cases": 1,
+    "suite_tests": 10
+  },
+  "stage2_fixed_commit": "72224c6f73b7ae8b09061bb80622b8c872f5db36",
+  "stage3_fixed_commit": "abd8c2fefeb66cd2bb076edc5282ac50ef3861c5"
+}
