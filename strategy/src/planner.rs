@@ -66,12 +66,12 @@ pub struct Planner {
     pad_retry: HashMap<(i32, bool), (i32, u32)>,
     cache_audit_id: u32,
     next_tail: i32,
-    tail_five_used: bool,
     tail_two_used: bool,
     next_carry: i32,
     next_combo_check: i32,
     squash_group_wait: Option<(ZombieId, i32)>,
     nuke_hold: Option<nuke::Retention>,
+    nuke_debts: Vec<(ZombieId, i32)>,
     next_nuke_retention: i32,
     nuke_exclude47: bool,
     current_nuke: Option<(i32, i32)>,
@@ -122,12 +122,12 @@ impl Default for Planner {
             pad_retry: HashMap::new(),
             cache_audit_id: setting("SIX_CACHE_AUDIT_ID", 0),
             next_tail: 0,
-            tail_five_used: false,
             tail_two_used: false,
             next_carry: 0,
             next_combo_check: 0,
             squash_group_wait: None,
             nuke_hold: None,
+            nuke_debts: Vec::with_capacity(32),
             next_nuke_retention: 0,
             nuke_exclude47: false,
             current_nuke: None,
@@ -159,6 +159,7 @@ mod candidate_tests {
         use rsvz::core::model::ContactRect;
         for x in -20..850 {
             let z = Zombie {
+                age: 0,
                 id: ZombieId::from_raw(65537),
                 kind: Z::GigaGargantuar,
                 row: 2,
@@ -202,6 +203,7 @@ mod candidate_tests {
         world.with_backend(|b| {
             PeBackend::scope_backend(b, || {
                 let z = Zombie {
+                    age: 0,
                     id: ZombieId::from_raw(65537),
                     kind: Z::Football,
                     row: 6,
@@ -605,7 +607,6 @@ impl Planner {
         self.squash5_deferred = false;
         self.ash_births = 0;
         self.next_tail = 0;
-        self.tail_five_used = false;
         self.tail_two_used = false;
         self.required.clear();
         self.omitted_cherry_births = 0;
@@ -656,8 +657,9 @@ impl Planner {
             }
             considered += 1;
             let feet = foot_columns(z);
+            let tail_sites = [feet[0], feet[1], 5, 6];
             for &col in if wave == 20 {
-                &feet[..]
+                &tail_sites[..]
             } else {
                 &self.carry_columns(wave)[..]
             } {
@@ -847,28 +849,43 @@ impl Planner {
             return false;
         }
         self.next_tail = self.scene.now + 25;
-        if wave == 20 && self.tail_five_used && !self.tail_two_used && ready(sel(Squash)) {
-            let reserved = self.reserve_squash5;
-            let used = self.tail_row_group(2, wave, forecast);
-            self.reserve_squash5 |= reserved;
-            if used {
-                self.tail_two_used = true;
+        if wave == 20 {
+            let deadline = |row| {
+                self.scene
+                    .row_zombies(row)
+                    .copied()
+                    .filter(|z| z.kind == Z::GigaGargantuar && (z.carried || z.wave == 20))
+                    .map(|z| run(z, &self.scene, forecast, None))
+                    .filter(|o| !o.safe())
+                    .map(|o| o.danger - 182 - if o.hp_at_end > 1800 { 3001 } else { 0 })
+                    .min()
+                    .unwrap_or(NEVER)
+            };
+            let five = deadline(5);
+            let two = if self.tail_two_used { NEVER } else { deadline(2) };
+            let (first, second, due) = if two < five { (2, 5, two) } else { (5, 2, five) };
+            if self.tail_row_group(first, wave, forecast) {
+                if first == 2 && !ready(sel(Squash)) {
+                    self.tail_two_used = true;
+                }
                 return true;
             }
-        }
-        if self.tail_row_group(5, wave, forecast) {
-            return true;
-        }
-        if wave == 20 && !self.tail_two_used && ready(sel(Squash)) {
-            let reserved = self.reserve_squash5;
-            let used = self.tail_row_group(2, wave, forecast);
-            self.reserve_squash5 |= reserved;
-            if used {
+            // A card spent on the other group must recover before this group's
+            // first required hit, including a second Squash when damage needs it.
+            if due <= 3001 {
+                self.reserve_squash5 = true;
+                return false;
+            }
+            if second == 2 && self.tail_two_used {
+                return false;
+            }
+            let used = self.tail_row_group(second, wave, forecast);
+            if used && second == 2 && !ready(sel(Squash)) {
                 self.tail_two_used = true;
             }
             return used;
         }
-        false
+        self.tail_row_group(5, wave, forecast)
     }
     fn tail_row_group(&mut self, row: i32, wave: i32, forecast: &Forecast) -> bool {
         self.reserve_squash5 = false;
@@ -903,9 +920,6 @@ impl Planner {
             return false;
         }
         if self.place_squash(row, forecast, 15) {
-            if row == 5 && wave == 20 {
-                self.tail_five_used = true;
-            }
             telemetry::record("tail_group_squash", &[self.required.len() as i64, row as i64]);
             return true;
         }
@@ -932,7 +946,8 @@ impl Planner {
             }
         }
         let feet = foot_columns(leader);
-        for &col in if wave == 20 { &feet[..] } else { &[4, 5][..] } {
+        let tail_sites = [feet[0], feet[1], 5, 6];
+        for &col in if wave == 20 { &tail_sites[..] } else { &[4, 5][..] } {
             if col == 0 {
                 continue;
             }
@@ -945,6 +960,9 @@ impl Planner {
             }
             let mut pad = Pad::new(pos, PuffShroom);
             pad.order = self.scene.next_plant_order;
+            if wave == 20 {
+                pad.trigger_window = 2500;
+            }
             pad.lifetime = prediction::puff_external_destruction_bound(&self.scene, leader, pos);
             if wave == 20 && !self.group_pad_keeps_jacks_in_gloom(pad) {
                 continue;
@@ -954,12 +972,16 @@ impl Planner {
             }
             let probe = prediction::probe_trigger(leader, &self.scene, forecast, pad);
             telemetry::work_prediction(1, probe);
-            if probe.trigger >= pad.lifetime || probe.trigger > 751 || !combat::jack_safe(pos, probe.trigger.min(126)) {
+            if probe.trigger >= pad.lifetime
+                || probe.trigger > if wave == 20 { 2500 } else { 751 }
+                || !combat::jack_safe(pos, probe.trigger.min(126))
+            {
                 continue;
             }
             // A pre-existing strike is not a new grouping pause.
-            let before = run_until(leader, &self.scene, forecast, None, 751, 1);
-            let after = run_until(leader, &self.scene, forecast, Some(pad), 751, 1);
+            let horizon = if wave == 20 { 2500 } else { 751 };
+            let before = run_until(leader, &self.scene, forecast, None, horizon, 1);
+            let after = run_until(leader, &self.scene, forecast, Some(pad), horizon, 1);
             if after.impact <= after.trigger || after.x_at_end <= before.x_at_end + 1. {
                 continue;
             }
@@ -1206,6 +1228,7 @@ impl Planner {
         } else {
             0
         };
+        self.keep_nuke_dependency(z, out, f);
         self.cache.insert(
             z.id,
             Cached {
@@ -1332,7 +1355,7 @@ impl Planner {
             } else {
                 self.cached_outcome(z, f)
             };
-            if eligible_early && (known.unwrap().danger > 751) != early_only {
+            if eligible_early && early_only && known.unwrap().danger <= 751 {
                 continue;
             }
             let local_retention = eligible_early && early_only;
@@ -1351,6 +1374,14 @@ impl Planner {
             let feet = foot_columns(z);
             let candidates = if w20_foot {
                 &feet[..]
+            } else if kind == PuffShroom
+                && z.giant()
+                && matches!(z.row, 1 | 6)
+                && f.events
+                    .iter()
+                    .any(|e| e.kind == prediction::EffectKind::Doom && e.at <= 2000)
+            {
+                &[1, 2, 3, 4, 5, 6, 7][..]
             } else if forward_retention || kind == PuffShroom && self.extended_sites(z) {
                 &[3, 4, 5, 6, 7][..]
             } else {
@@ -1394,17 +1425,6 @@ impl Planner {
                 if pad.lifetime <= 0 || z.frozen >= pad.lifetime || !prediction::could_contact_pad(z, pad) {
                     continue;
                 }
-                if kind == PuffShroom {
-                    pad.offset_x = -5;
-                    let left = prediction::contact(z, z.x, pad.rect());
-                    pad.offset_x = 4;
-                    let right = prediction::contact(z, z.x, pad.rect());
-                    pad.offset_x = 0;
-                    // The narrow ambiguous strip is crossed before an immediate block.
-                    if left != right {
-                        continue;
-                    }
-                }
                 if !replace && self.event_cache != 0 && z.giant() && baseline.is_some() {
                     if let Some(cached) = self.cache.get(&z.id) {
                         let contact = cached.prefix.first_contact[(col - 1) as usize];
@@ -1441,6 +1461,9 @@ impl Planner {
                     break;
                 }
                 let after = run(z, &self.scene, f, Some(pad));
+                if kind == PuffShroom && !combination::useful(z, base, after) {
+                    continue;
+                }
                 if replace && !(after.safe() && !base.safe() || after.death < base.death || after.danger > base.danger)
                 {
                     continue;
@@ -1516,6 +1539,13 @@ impl Planner {
                     }
                     if closes != best_closing {
                         return closes;
+                    }
+                    if kind == PuffShroom && base.danger > 751 && old_base.danger > 751 {
+                        let retained = after.ash_hits > base.ash_hits;
+                        let old_retained = old_after.ash_hits > old_base.ash_hits;
+                        if retained != old_retained {
+                            return retained;
+                        }
                     }
                     if kind == PuffShroom && z.id == old_z.id && after.safe() == old_after.safe() {
                         let loss = self.storage_imp_exposure(pos, after.trigger, z, base);
@@ -1674,6 +1704,11 @@ impl Planner {
         // Preserve an earlier real loss elsewhere instead of waiting blindly
         // for one lane's preferred damage position.
         let emergency = self.scene.zombies.iter().copied().any(|z| {
+            if z.kind == Z::Imp && matches!(z.phase, ZombiePhase::ImpGettingThrown | ZombiePhase::ImpLanding) {
+                return prediction::imp_landing::observed_landing(z).is_some_and(|(child, arrival)| {
+                    prediction::simulate_imp_arrival(child, &self.scene, &without, 0, arrival).danger <= wait
+                });
+            }
             z.phase == ZombiePhase::JackInTheBoxPopping
                 || (z.giant() || matches!(z.kind, Z::Football | Z::Imp))
                     && run_until(z, &self.scene, &without, None, wait, 2).danger <= wait
@@ -1750,8 +1785,29 @@ impl Planner {
                 return;
             }
             let ordinary = self.choose_pad(PuffShroom, f);
+            if self.wait_for_football_contact(f, ordinary.as_ref()) {
+                return;
+            }
             if self.try_nuke_retention(w, f, ordinary.as_ref()) {
                 return;
+            }
+            // Compare a concrete one/two-Puff ash window before optional stock.
+            // Immediate loss and expiring interception requests keep precedence.
+            if ordinary
+                .as_ref()
+                .is_none_or(|(_, z, base, _)| base.danger > 751 && !self.last_pad_window_closes(*z, *base, f))
+                && self.spare_puff()
+                && self.scene.now >= self.next_ash_pad
+            {
+                self.next_ash_pad = self.scene.now + 25;
+                if let Some((pos, z, base, after, event)) = self.choose_ash_pad(f) {
+                    self.record_choice(z, base, after, pos, PuffShroom, f);
+                    if play_puff(pos, 16) {
+                        telemetry::record("priority_ash_retention", &[z.id.raw() as i64, event as i64]);
+                        self.recheck_planted(z.id, pos, f);
+                        return;
+                    }
+                }
             }
             if let Some((pos, z, base, after)) = ordinary {
                 if self.scene.main(pos).is_none() && self.later_pad_better(z, pos, f, after) {
@@ -1952,19 +2008,6 @@ impl Planner {
                 }
             }
         }
-        let mut basketball = [false; 6];
-        for z in &self.scene.zombies {
-            if z.kind == Z::Catapult {
-                basketball[(z.row - 1) as usize] = true;
-            }
-        }
-        rsvz::with_frame(|b| {
-            for p in b.projectiles() {
-                if p.kind_code() == 9 && (0..6).contains(&p.row()) {
-                    basketball[p.row() as usize] = true;
-                }
-            }
-        });
         let mut best: Option<(Pos, Zombie, Outcome, Outcome, usize)> = None;
         for i in 0..self.scene.zombies.len() {
             let z = self.scene.zombies[i];
@@ -1990,9 +2033,6 @@ impl Planner {
             let mut baseline = None;
             for col in 1..=9 {
                 let pos = (z.row, col);
-                if basketball[(z.row - 1) as usize] && !prediction::sheltered_puff_site(pos) {
-                    continue;
-                }
                 let mut pad = Pad::new(pos, PuffShroom);
                 pad.offset_x = -5;
                 let left = prediction::contact(z, z.x, pad.rect());
@@ -2640,7 +2680,11 @@ impl Planner {
         let quiet_cherry = kind == prediction::EffectKind::Cherry && !self.red_pressure(&without);
         self.required.clear();
         let mut pad_target: Option<(Zombie, i32)> = None;
-        for z in self.scene.zombies.iter().copied().filter(|z| rows.contains(&z.row)) {
+        for i in 0..self.scene.zombies.len() {
+            let z = self.scene.zombies[i];
+            if !rows.contains(&z.row) {
+                continue;
+            }
             if !(z.giant() || matches!(z.kind, Z::Football | Z::Zomboni | Z::Catapult)) {
                 continue;
             }
@@ -2673,6 +2717,7 @@ impl Planner {
             }
             let out = run(z, &self.scene, &without, None);
             if out.safe() && out.death < NEVER {
+                self.keep_nuke_dependency(z, out, &without);
                 continue;
             }
             // An unsafe giant that this Cherry cannot hit is not a reason to

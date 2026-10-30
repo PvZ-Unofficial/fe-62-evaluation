@@ -117,6 +117,7 @@ mod tests {
     use rsvz::core::model::ContactRect;
     fn red(hp: i32) -> Zombie {
         Zombie {
+            age: 0,
             id: ZombieId::from_raw(65537),
             kind: Z::GigaGargantuar,
             row: 6,
