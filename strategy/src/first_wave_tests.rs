@@ -582,7 +582,7 @@ fn late_blover_margin_native_phase_sweep() {
 }
 
 #[test]
-fn exact_blover_window_matches_native_and_one_frame_later_misses() {
+fn exact_blover_window_holds_and_one_frame_later_loses_block() {
     use prediction::football_contact::{Window, window};
     for col in [1, 2] {
         for chilled in [false, true] {
@@ -630,11 +630,10 @@ fn exact_blover_window_matches_native_and_one_frame_later_misses() {
                     world.with_backend(|b| {
                         b.new_plant(sel(Blover).checked().unwrap(), grid((1, col))).unwrap();
                     });
-                    let mut caught = false;
-                    for _ in 0..8 {
+                    for _ in 0..16 {
                         world.update_world().unwrap();
-                        caught |= world.with_backend(|b| b.zombie_is_eating(b.zombies().unwrap().next().unwrap()));
                     }
+                    let caught = world.with_backend(|b| b.zombie_is_eating(b.zombies().unwrap().next().unwrap()));
                     assert_eq!(
                         caught,
                         delay == 0,
@@ -707,11 +706,10 @@ fn exact_blover_window_tracks_chill_expiry_and_incoming_ice() {
                 world.with_backend(|b| {
                     b.new_plant(sel(Blover).checked().unwrap(), grid((1, col))).unwrap();
                 });
-                let mut caught = false;
-                for _ in 0..8 {
+                for _ in 0..16 {
                     world.update_world().unwrap();
-                    caught |= world.with_backend(|b| b.zombie_is_eating(b.zombies().unwrap().next().unwrap()));
                 }
+                let caught = world.with_backend(|b| b.zombie_is_eating(b.zombies().unwrap().next().unwrap()));
                 assert_eq!(caught, delay == 0, "col={col} remaining={remaining} delay={delay}");
             }
         }

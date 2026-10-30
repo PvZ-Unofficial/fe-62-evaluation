@@ -125,7 +125,7 @@ impl Planner {
             }
             let mut pad = Pad::new((1, col), Blover);
             let last_x = col * 80 - 80;
-            if target.x < last_x as f32 {
+            if (target.x as i32) < last_x {
                 return None;
             }
             let wait = match self.football_window(target.id, col, 751, f) {
@@ -194,7 +194,7 @@ impl Planner {
                         && z.row() == 0
                         && z.kind() == Z::Football
                         && z.from_wave() + 1 == birth
-                        && z.x() >= edge
+                        && (z.x() as i32) >= edge as i32
                         && z.x() <= edge + prediction::max_step(Z::Football) * 16.
                 })
                 .min_by(|a, b| a.x().total_cmp(&b.x()))
@@ -330,7 +330,7 @@ impl Planner {
             };
             let pos = (1, col);
             let last_x = (col * 80 - 80) as f32;
-            if target.x < last_x {
+            if (target.x as i32) < last_x as i32 {
                 self.blover_handled_births |= wave_bit(target.wave);
                 telemetry::record(
                     "blover_window_missed",
