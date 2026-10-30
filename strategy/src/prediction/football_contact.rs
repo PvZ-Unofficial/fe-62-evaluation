@@ -1,4 +1,4 @@
-//! Last native bite-check opportunity for a freely walking Football.
+//! Last native bite check that retains contact after the movement update.
 use rsvz::core::model::{ZombieMotionError, ZombieMotionState};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -30,7 +30,11 @@ pub fn window(
         let interval = if chilled { 8 } else { 4 };
         // Age increments and debuffs decrement first; movement happens before
         // eating, but attack-box int_x is updated only at the end of the tick.
-        if !frozen && (age + dt as i32) % interval == 0 && x <= right {
+        // Starting to eat is insufficient if this update's movement has
+        // already crossed the left edge. The next prey check would release
+        // that transient bite. Keep the post-move box in contact as well.
+        let stopped_x = xs[dt as usize] as i32;
+        if !frozen && (age + dt as i32) % interval == 0 && x <= right && stopped_x >= left {
             last = Some(dt);
         }
     }
