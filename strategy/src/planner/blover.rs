@@ -71,7 +71,9 @@ impl Planner {
     fn football_blover_column(&self, target: Zombie, f: &Forecast) -> i32 {
         if self.scene.main((1, 1)).is_some()
             || !legal(sel(Blover), (1, 1))
-            || !self.scene.row_zombies(1).any(|z| z.giant() && z.x < 350.)
+            // After committing past col2's window, a giant dying must not
+            // cancel the still-valid col1 opportunity we were waiting for.
+            || target.x >= 80. && !self.scene.row_zombies(1).any(|z| z.giant() && z.x < 350.)
         {
             return 2;
         }
