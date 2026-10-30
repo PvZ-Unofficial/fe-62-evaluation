@@ -307,6 +307,7 @@ mod tests {
     #[test]
     fn basketball_and_bites_consume_the_same_plant_hp() {
         let giant = Zombie {
+            age: 0,
             id: ZombieId::from_raw(65537),
             kind: Z::GigaGargantuar,
             row: 1,

@@ -1,6 +1,7 @@
 use super::*;
 use diagnostics::Condition as C;
 use rsvz::core::model::ActivationFact;
+mod stack_layout;
 
 // Flag-wave Football full-damage boundary is332cs under natural movement.
 // Leave one update of margin; this is an effect time, not a planting time.
@@ -24,6 +25,7 @@ struct CherryPlan {
 }
 
 pub struct Control {
+    stack_prepared: bool,
     decision_period: i32,
     cherry_period: i32,
     next_economy_check: i32,
@@ -71,6 +73,7 @@ pub struct Control {
 impl Default for Control {
     fn default() -> Self {
         Self {
+            stack_prepared: false,
             decision_period: setting("SIX_DECISION_PERIOD", 20).max(1) as i32,
             cherry_period: setting("SIX_CHERRY_PERIOD", 250).max(1) as i32,
             next_economy_check: 0,
@@ -1325,6 +1328,17 @@ impl Control {
         true
     }
     pub fn tick(&mut self) {
+        if !self.stack_prepared {
+            self.stack_prepared = true;
+            match stack_layout::prepare() {
+                Ok(true) => return,
+                Ok(false) => {}
+                Err(e) => {
+                    rsvz::fail_script(e);
+                    return;
+                }
+            }
+        }
         let _perf = crate::perf::scope("strategy::tick");
         let (now, w, t) = time();
         let period = if self.policy.enabled() { 5 } else { self.decision_period };
@@ -1434,7 +1448,7 @@ impl Control {
             }
         }
         if !decision_due {
-            if self.planner.blover_contact_due(w, t) {
+            if self.planner.blover_contact_due(w, t, &self.forecast) {
                 self.planner.observe(now, self.last_ice);
                 self.refresh_forecast(now, w, t);
                 self.planner.blover(w, t, &self.forecast);
