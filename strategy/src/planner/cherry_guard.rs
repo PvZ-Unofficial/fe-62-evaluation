@@ -407,6 +407,7 @@ mod tests {
                 }
                 PeBackend::scope_backend(b, || {
                     let z = Zombie {
+                        age: 0,
                         id: ZombieId::from_raw(65539),
                         kind: Z::GigaGargantuar,
                         row: 2,
@@ -467,6 +468,7 @@ mod tests {
             b.finish_card_selection().unwrap();
             PeBackend::scope_backend(b, || {
                 let z = Zombie {
+                    age: 0,
                     id: ZombieId::from_raw(65537),
                     kind: Z::GigaGargantuar,
                     row: 2,
@@ -537,6 +539,7 @@ mod tests {
             b.finish_card_selection().unwrap();
             PeBackend::scope_backend(b, || {
                 let mut z = Zombie {
+                    age: 0,
                     id: ZombieId::from_raw(65537),
                     kind: Z::GigaGargantuar,
                     row: 1,

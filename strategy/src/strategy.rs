@@ -1434,7 +1434,7 @@ impl Control {
             }
         }
         if !decision_due {
-            if self.planner.blover_contact_due(w, t) {
+            if self.planner.blover_contact_due(w, t, &self.forecast) {
                 self.planner.observe(now, self.last_ice);
                 self.refresh_forecast(now, w, t);
                 self.planner.blover(w, t, &self.forecast);
