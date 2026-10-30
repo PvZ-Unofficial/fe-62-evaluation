@@ -1,6 +1,10 @@
 //! A real balloon-clearing use can also hold footballs omitted or missed by Cherry.
 use super::*;
 
+// One decision frame plus the native four-frame bite check (eight when
+// chilled at half speed), at the observed Football step bound 0.85px.
+const FOOTBALL_CONTACT_MARGIN: i32 = 5;
+
 fn wave_bit(wave: i32) -> u32 {
     if (1..=20).contains(&wave) { 1 << wave } else { 0 }
 }
@@ -100,7 +104,7 @@ impl Planner {
             if target.x < last_x as f32 {
                 return None;
             }
-            let due_x = last_x + 3;
+            let due_x = last_x + FOOTBALL_CONTACT_MARGIN;
             let wait = if target.x <= due_x as f32 {
                 0
             } else {
@@ -164,7 +168,8 @@ impl Planner {
                     && z.row() == 0
                     && z.kind() == Z::Football
                     && z.from_wave() + 1 == birth
-                    && ((self.blover_watch_col * 80 - 80)..=(self.blover_watch_col * 80 - 77)).contains(&(z.x() as i32))
+                    && ((self.blover_watch_col * 80 - 80)..=(self.blover_watch_col * 80 - 80 + FOOTBALL_CONTACT_MARGIN))
+                        .contains(&(z.x() as i32))
             })
         })
     }
@@ -326,7 +331,7 @@ impl Planner {
                             // rather than starting the giant's hammer at first contact.
                             // Urgent visible balloons still use the existing immediate cast.
                             if prediction::contact(target, target.x, pad.rect())
-                                && (insurance || target.x <= last_x + 3.)
+                                && (insurance || target.x <= last_x + FOOTBALL_CONTACT_MARGIN as f32)
                             {
                                 let before = self.assessment(target, f);
                                 let after = run(target, &self.scene, f, Some(pad));
