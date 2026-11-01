@@ -183,7 +183,9 @@ impl Planner {
         let Some(event) = f
             .events
             .iter()
-            .filter(|e| !e.certain && e.kind == prediction::EffectKind::Cherry && e.at > 100 && e.at <= 2000)
+            .filter(|e| {
+                !e.certain && e.kind == prediction::EffectKind::Cherry && e.at > 100 && e.at <= prediction::HORIZON
+            })
             .min_by_key(|e| e.at)
             .copied()
         else {
@@ -407,6 +409,7 @@ mod tests {
                 }
                 PeBackend::scope_backend(b, || {
                     let z = Zombie {
+                        age: 0,
                         id: ZombieId::from_raw(65539),
                         kind: Z::GigaGargantuar,
                         row: 2,
@@ -467,12 +470,13 @@ mod tests {
             b.finish_card_selection().unwrap();
             PeBackend::scope_backend(b, || {
                 let z = Zombie {
+                    age: 0,
                     id: ZombieId::from_raw(65537),
                     kind: Z::GigaGargantuar,
                     row: 2,
                     wave: 9,
                     carried: false,
-                    x: 400.,
+                    x: 460.,
                     hp: 2640,
                     armor: 0,
                     phase: ZombiePhase::ZombieNormal,
@@ -482,7 +486,7 @@ mod tests {
                     chilled: 0,
                     object: false,
                     eating: false,
-                    rect: ContactRect::new(383, 97, 508, 251),
+                    rect: ContactRect::new(443, 97, 568, 251),
                 };
                 let mut scene = Scene::fixture(vec![z]);
                 scene.plants.push(prediction::Plant {
@@ -503,7 +507,7 @@ mod tests {
                 assert!(state.debts.iter().any(|d| d.id == z.id && d.planned));
                 scene.zombies[0].hp = 1000;
                 let mut f = Forecast::default();
-                f.add(1, prediction::EffectKind::Cherry, (2, 4), true);
+                f.add(1, prediction::EffectKind::Cherry, (2, 5), true);
                 cherry::select(&scene, &f, 1000, [true; 12], false, &mut state);
                 assert!(!state.required(z.id));
                 scene.zombies[0].hp = 2640;
@@ -537,6 +541,7 @@ mod tests {
             b.finish_card_selection().unwrap();
             PeBackend::scope_backend(b, || {
                 let mut z = Zombie {
+                    age: 0,
                     id: ZombieId::from_raw(65537),
                     kind: Z::GigaGargantuar,
                     row: 1,
