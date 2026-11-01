@@ -147,35 +147,43 @@ impl Observation {
                 }
                 _ => continue,
             }
-            // Only the next concrete firing opportunity. Later shots are
-            // reobserved rather than repeated from a stale target and gun state.
-            if start >= stop {
-                continue;
-            }
-            let launch = start + active_time((0.545 - progress).max(0.) * 32. / 0.24, start, z.chilled) + 1;
-            if launch >= stop {
-                continue;
-            }
-            if naturally_killed_before(scene, z, launch) {
-                continue;
-            }
-            if let Some((tx, ty)) = aim(scene, row, extra, launch, x, f) {
-                let origin = x + 113.;
-                trace(
-                    Ball {
-                        row,
-                        x: origin as i32 as f32,
-                        vx: -(origin - tx as f32 - 20.).max(40.) / 120.,
-                        height: 0.,
-                        vz: (ty - (car.y - 44)) as f32 / 120. - 7.,
-                        az: 0.115,
-                        age: 0,
-                    },
-                    launch,
-                    shot,
-                    &mut out,
-                );
-                shot += 1;
+            // Four basketballs exhaust an intact Puff. Bound the forecast to
+            // that useful contact budget and the next planned state change.
+            for cycle in 0..4 {
+                if start >= stop || cycle > 0 && car.known_age + start >= 5700 {
+                    break;
+                }
+                let launch = start + active_time((0.545 - progress).max(0.) * 32. / 0.24, start, z.chilled) + 1;
+                if launch >= stop {
+                    break;
+                }
+                if naturally_killed_before(scene, z, launch) {
+                    break;
+                }
+                if let Some((tx, ty)) = aim(scene, row, extra, launch, x, f) {
+                    let origin = x + 113.;
+                    trace(
+                        Ball {
+                            row,
+                            x: origin as i32 as f32,
+                            vx: -(origin - tx as f32 - 20.).max(40.) / 120.,
+                            height: 0.,
+                            vz: (ty - (car.y - 44)) as f32 / 120. - 7.,
+                            az: 0.115,
+                            age: 0,
+                        },
+                        launch,
+                        shot,
+                        &mut out,
+                    );
+                    shot += 1;
+                }
+                start = if cycle == 0 && z.phase == ZombiePhase::CatapultLaunching && progress > 0. {
+                    cold + car.count.max(0)
+                } else {
+                    start + if cycle == 0 { 299 } else { 300 }
+                };
+                progress = 0.;
             }
         }
         out.sort_unstable_by_key(|e| (e.at, e.shot));
@@ -307,6 +315,7 @@ mod tests {
     #[test]
     fn basketball_and_bites_consume_the_same_plant_hp() {
         let giant = Zombie {
+            age: 0,
             id: ZombieId::from_raw(65537),
             kind: Z::GigaGargantuar,
             row: 1,
