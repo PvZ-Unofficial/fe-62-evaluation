@@ -32,7 +32,32 @@ def request(path):
     seeds = value["seeds"]
     if len(seeds) != 300 or len(set(seeds)) != 300 or any(type(s) is not int or not 1000000 < s < 2**32 for s in seeds):
         raise ValueError("request must contain 300 distinct uint32 roots")
+    shard_count(value)
     return value
+
+
+def shard_count(req):
+    count = req.get("shards", 6)
+    if type(count) is not int or not 1 <= count <= len(req["seeds"]):
+        raise ValueError("shards must be an integer between one and the root count")
+    return count
+
+
+def shard_seeds(req, index):
+    count = shard_count(req)
+    if type(index) is not int or not 0 <= index < count:
+        raise ValueError("shard index outside request partition")
+    seeds = req["seeds"]
+    return seeds[len(seeds) * index // count:len(seeds) * (index + 1) // count]
+
+
+def matrix(args):
+    shards = json.dumps(list(range(shard_count(request(args.request)))))
+    if "GITHUB_OUTPUT" in os.environ:
+        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+            output.write("shards=" + shards + "\n")
+    else:
+        print(shards)
 
 
 def build(args):
@@ -107,7 +132,7 @@ def shard(args):
         if digest(bundle / name) != expected:
             raise ValueError(f"bundle checksum mismatch: {name}")
     req = request(bundle / "request.json")
-    seeds = req["seeds"][args.index * 50:(args.index + 1) * 50]
+    seeds = shard_seeds(req, args.index)
     folder = ROOT / "outputs" / f"shard-{args.index}"
     folder.mkdir(parents=True, exist_ok=False)
     seedfile = folder / "seeds.txt"
@@ -115,7 +140,7 @@ def shard(args):
     # run.py uses its sibling framework directory only as the runner cwd.
     (ROOT / "RustVsZombies").mkdir(exist_ok=True)
     command = [sys.executable, str(bundle / "run.py"), "--runner", str(bundle / "runner.exe"),
-               "--output", str(folder / "run"), "--seed-file", str(seedfile), "--trials", "50",
+               "--output", str(folder / "run"), "--seed-file", str(seedfile), "--trials", str(len(seeds)),
                "--workers", "4", "--rounds", "0", "--trace", "0", "--detail", "0", "--policy", "rule"]
     for key, value in read(bundle / "parameters.json").items():
         command += ["--env", f"{key}={value}"]
@@ -129,17 +154,20 @@ def shard(args):
 
 def summarize(args):
     files = list((ROOT / "outputs").rglob("report.json"))
-    if len(files) != 6:
-        raise ValueError(f"expected six successful shards, got {len(files)}")
+    if not files:
+        raise ValueError("no successful shards")
     reports = [read(f) for f in files]
-    if sorted(r["shard"] for r in reports) != list(range(6)):
+    count = shard_count(reports[0]["request"])
+    if len(files) != count:
+        raise ValueError(f"expected {count} successful shards, got {len(files)}")
+    if sorted(r["shard"] for r in reports) != list(range(count)):
         raise ValueError("duplicated shard")
     first = reports[0]
     roots, rounds = [], {}
     for r in reports:
         if r["build"] != first["build"] or r["request"] != first["request"]:
             raise ValueError("mixed revisions, runner binaries or seed batches")
-        seeds = r["request"]["seeds"][r["shard"] * 50:(r["shard"] + 1) * 50]
+        seeds = shard_seeds(r["request"], r["shard"])
         rr = {int(k): v for k, v in r["rounds"].items()}
         validate(r["roots"], rr, seeds)
         roots.extend(r["roots"])
@@ -185,7 +213,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="mode", required=True)
     sub.add_parser("build").add_argument("--request", required=True)
-    sub.add_parser("shard").add_argument("--index", type=int, choices=range(6), required=True)
+    sub.add_parser("matrix").add_argument("--request", required=True)
+    sub.add_parser("shard").add_argument("--index", type=int, required=True)
     sub.add_parser("summarize")
     args = parser.parse_args()
-    {"build": build, "shard": shard, "summarize": summarize}[args.mode](args)
+    {"build": build, "matrix": matrix, "shard": shard, "summarize": summarize}[args.mode](args)
