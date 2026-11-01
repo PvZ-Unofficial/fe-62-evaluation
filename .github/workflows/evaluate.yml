@@ -1,91 +1,40 @@
 name: Evaluate
-run-name: ${{ inputs.label }} · ${{ github.ref_name }}
+run-name: ${{ inputs.label }}
 on:
   workflow_dispatch:
     inputs:
-      request:
-        description: Committed JSON request containing 300 unique seeds
-        required: true
-        default: requests/cloud-baseline.json
       label:
-        description: Human-readable experiment name
         required: true
-        default: cloud-baseline
+        type: string
 permissions:
   contents: read
 jobs:
-  build:
-    runs-on: windows-2022
-    timeout-minutes: 45
-    env:
-      RUSTUP_TOOLCHAIN: nightly-2026-06-04
-      PYTHONUTF8: '1'
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/cache@v6.1.0
-        with:
-          path: C:\rsvz-llvm-22.1.7
-          key: llvm-22.1.7-windows-x64
-      - name: Prepare build tools
-        shell: pwsh
-        run: |
-          rustup toolchain install nightly-2026-06-04 --profile minimal
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $llvmRoot = 'C:\rsvz-llvm-22.1.7'
-          $llvmBin = Join-Path $llvmRoot 'bin'
-          if (!(Test-Path "$llvmBin\clang-cl.exe")) {
-            $installer = Join-Path $env:RUNNER_TEMP 'LLVM-22.1.7-win64.exe'
-            Invoke-WebRequest 'https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.7/LLVM-22.1.7-win64.exe' -OutFile $installer
-            $install = Start-Process -FilePath $installer -ArgumentList '/S', "/D=$llvmRoot" -Wait -PassThru -WindowStyle Hidden
-            if ($install.ExitCode -ne 0) { exit $install.ExitCode }
-          }
-          "PE_RS_LLVM_BIN=$llvmBin" >> $env:GITHUB_ENV
-          "LIBCLANG_PATH=$llvmBin" >> $env:GITHUB_ENV
-          $llvmBin >> $env:GITHUB_PATH
-          if (!(Get-Command ninja -ErrorAction SilentlyContinue)) {
-            python -m pip install ninja
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          }
-          rustc --version
-          & "$llvmBin\clang-cl.exe" --version
-          cmake --version
-      - uses: actions/cache@v6.1.0
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            RustVsZombies/target
-          key: windows-2022-fe62-nightly-20260604-llvm2217-${{ hashFiles('RustVsZombies/Cargo.lock', 'SNAPSHOT.json') }}
-          restore-keys: windows-2022-fe62-nightly-20260604-llvm2217-
-      - name: Validate reporting
-        run: python -m unittest discover -s ci -p "test_*.py"
-      - name: Build one runner
-        env:
-          REQUEST_PATH: ${{ inputs.request }}
-        run: python ci/evaluate.py build --request "$env:REQUEST_PATH"
+          sparse-checkout: |
+            ci
+            recovery-inputs
+      - run: python -m zipfile -e recovery-inputs/frozen.zip .
+      - id: plan
+        run: python ci/accelerate.py matrix
       - uses: actions/upload-artifact@v7.0.2
         with:
           name: runner-bundle
           path: bundle/
           retention-days: 7
-          if-no-files-found: error
-      - name: Preserve build failure logs
-        if: failure()
-        uses: actions/upload-artifact@v7.0.2
-        with:
-          name: build-failure
-          path: bundle/build.log
-          retention-days: 7
   simulate:
-    needs: build
+    needs: plan
     runs-on: windows-2022
     timeout-minutes: 180
     strategy:
       fail-fast: false
-      matrix:
-        shard: [0, 1, 2, 3, 4, 5]
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     env:
       PYTHONUTF8: '1'
     steps:
@@ -97,33 +46,11 @@ jobs:
         with:
           name: runner-bundle
           path: bundle
-      - name: Run 50 independent roots with 4 workers
-        run: python ci/evaluate.py shard --index ${{ matrix.shard }}
+      - run: python ci/accelerate.py part --shard ${{ matrix.shard }} --part ${{ matrix.part }}
       - uses: actions/upload-artifact@v7.0.2
         if: always()
         with:
-          name: shard-${{ matrix.shard }}
-          path: outputs/shard-${{ matrix.shard }}/
-          retention-days: 7
+          name: piece-${{ matrix.shard }}-${{ matrix.part }}
+          path: out/
           if-no-files-found: error
-  summarize:
-    needs: [build, simulate]
-    if: always() && needs.build.result == 'success'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7.0.1
-        with:
-          persist-credentials: false
-          sparse-checkout: ci
-      - uses: actions/download-artifact@v8.0.2
-        with:
-          pattern: shard-*
-          path: outputs
-      - name: Validate all 300 roots and summarize
-        run: python ci/evaluate.py summarize
-      - uses: actions/upload-artifact@v7.0.2
-        with:
-          name: evaluation-summary
-          path: results/
           retention-days: 7
-          if-no-files-found: error
