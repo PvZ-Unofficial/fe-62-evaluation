@@ -102,6 +102,7 @@ mod damage_tests {
     use super::*;
     fn z(row: i32, hp: i32) -> Zombie {
         Zombie {
+            age: 0,
             id: ZombieId::from_raw(65537),
             kind: Z::GigaGargantuar,
             row,
