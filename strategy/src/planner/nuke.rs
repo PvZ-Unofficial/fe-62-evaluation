@@ -12,8 +12,9 @@ pub(super) struct Retention {
     pit: Pos,
     ice: Option<(Pos, i32)>,
 }
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(crate) struct Snapshot {
+    debts: Vec<(ZombieId, i32)>,
     hold: Option<Retention>,
     current: Option<(i32, i32)>,
     next: i32,
@@ -39,8 +40,41 @@ fn contribution(pos: Pos, z: Zombie, out: Outcome, at: i32) -> i64 {
 }
 
 impl Planner {
+    pub(super) fn keep_nuke_dependency(&mut self, z: Zombie, out: Outcome, f: &Forecast) {
+        if z.kind != Z::GigaGargantuar
+            || z.x > 500.
+            || !out.safe()
+            || out.death == NEVER
+            || self.nuke_debts.iter().any(|(id, _)| *id == z.id)
+        {
+            return;
+        }
+        let Some(index) = f.events.iter().enumerate().find_map(|(i, e)| {
+            (e.kind == prediction::EffectKind::Doom && !e.certain && out.ash_mask & (1 << i) != 0).then_some(i)
+        }) else {
+            return;
+        };
+        let without = Forecast {
+            events: f
+                .events
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| *i != index)
+                .map(|(_, e)| *e)
+                .collect(),
+        };
+        let independent = run(z, &self.scene, &without, None);
+        if !independent.safe() {
+            self.nuke_debts.push((z.id, telemetry::damage_history(z.id).0));
+            telemetry::record(
+                "nuke_damage_dependency",
+                &[z.id.raw() as i64, f.events[index].at as i64],
+            );
+        }
+    }
     pub fn save_retention(&self) -> Snapshot {
         Snapshot {
+            debts: self.nuke_debts.clone(),
             hold: self.nuke_hold,
             current: self.current_nuke,
             next: self.next_nuke_retention,
@@ -48,6 +82,7 @@ impl Planner {
         }
     }
     pub fn restore_retention(&mut self, saved: Snapshot) {
+        self.nuke_debts = saved.debts;
         self.nuke_hold = saved.hold;
         self.current_nuke = saved.current;
         self.next_nuke_retention = saved.next;
@@ -90,13 +125,14 @@ impl Planner {
         })
     }
     pub fn nuke_position(&mut self, f: &Forecast, at: i32, preferred: Pos, exclude47: bool) -> Pos {
+        self.nuke_debts.retain(|(id, hits)| {
+            self.scene.zombies.iter().any(|z| z.id == *id) && telemetry::damage_history(*id).0 <= *hits
+        });
         self.nuke_exclude47 = exclude47;
         let positions = [preferred, (3, 7), (4, 7), (3, 8), (4, 8), (3, 9), (4, 9)];
         let legal: Vec<_> = positions
             .into_iter()
-            .filter(|&p| {
-                !(exclude47 && p == (4, 7)) && combat::candidate(sel(DoomShroom), p) && combat::jack_safe(p, 100)
-            })
+            .filter(|&p| !(exclude47 && p == (4, 7)) && combat::candidate(sel(DoomShroom), p))
             .collect();
         if legal.is_empty() {
             return preferred;
@@ -117,6 +153,7 @@ impl Planner {
                 .collect(),
         };
         let mut score = vec![0i64; legal.len()];
+        let mut protected = vec![0usize; legal.len()];
         for &z in &self.scene.zombies {
             if !(z.giant() || z.kind == Z::Football || z.kind == Z::Zomboni) {
                 continue;
@@ -137,12 +174,13 @@ impl Planner {
                 let shape = grid_explosion_shape(GridExplosionKind::DoomShroom, grid(pos));
                 if (z.row - pos.0).abs() <= shape.row_range && circle_hits_rect(shape.circle, z.rect_at(out.x_at_end)) {
                     score[i] += value * (600 + left);
+                    protected[i] += usize::from(self.nuke_debts.iter().any(|(id, _)| *id == z.id));
                 }
             }
         }
         let mut best = 0;
         for i in 1..legal.len() {
-            if score[i] > score[best] {
+            if (protected[i], score[i]) > (protected[best], score[best]) {
                 best = i;
             }
         }
@@ -271,7 +309,7 @@ impl Planner {
             let z = self.scene.zombies[index];
             if z.kind == Z::GigaGargantuar && matches!(z.row, 1 | 6) && z.x < 600. {
                 let feet = foot_columns(z);
-                if !(if z.row == 1 { &[2, 1][..] } else { &feet[..] }).iter().any(|&col| {
+                if !(&feet[..]).iter().any(|&col| {
                     col > 0
                         && self.scene.main((z.row, col)).is_none()
                         && legal(sel(PuffShroom), (z.row, col))
@@ -357,7 +395,7 @@ impl Planner {
                     .unwrap_or(800)
             });
             let feet = foot_columns(z);
-            for &col in if z.row == 1 { &[2, 1][..] } else { &feet[..] } {
+            for &col in &feet[..] {
                 let pos = (z.row, col);
                 if col == 0
                     || cells.contains(&pos)
@@ -396,7 +434,7 @@ impl Planner {
                             ..z
                         };
                         let feet = foot_columns(future);
-                        for &col in if z.row == 1 { &[2, 1][..] } else { &feet[..] } {
+                        for &col in &feet[..] {
                             let ip = (z.row, col);
                             if col > 0
                                 && ice_road >= [108, 188, 268, 348, 428, 508, 588, 668, 751][(col - 1) as usize]
@@ -550,6 +588,7 @@ mod tests {
             }
             PeBackend::scope_backend(b, || {
                 let a = Zombie {
+                    age: 0,
                     id: ZombieId::from_raw(65537),
                     kind: Z::GigaGargantuar,
                     row: 6,
@@ -640,6 +679,7 @@ mod tests {
     #[test]
     fn optional_grouping_must_not_stop_a_jack_outside_the_gloom() {
         let z = Zombie {
+            age: 0,
             id: ZombieId::from_raw(65537),
             kind: Z::JackInTheBox,
             row: 5,
