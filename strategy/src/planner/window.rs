@@ -203,6 +203,7 @@ mod tests {
     #[test]
     fn first_ice_waits_for_old_football_output_band_only() {
         let z = Zombie {
+            age: 0,
             id: ZombieId::from_raw(65537),
             kind: Z::Football,
             row: 1,
@@ -261,6 +262,7 @@ mod tests {
             b.finish_card_selection().unwrap();
             PeBackend::scope_backend(b, || {
                 let z = Zombie {
+                    age: 0,
                     id: ZombieId::from_raw(65537),
                     kind: Z::GigaGargantuar,
                     row: 1,
