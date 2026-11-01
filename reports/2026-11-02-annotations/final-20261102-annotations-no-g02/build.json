@@ -1,0 +1,23 @@
+{
+  "commit": "84e3bbb42ec0df5f2c509c1380f9120b6b532993",
+  "snapshot": {
+    "RustVsZombies": {
+      "source_commit": "b5a7bff9f2788cb4409a9a47d51f028cbdf65194"
+    },
+    "PvZ-Emulator": {
+      "source_commit": "208cb979a329b5f4b844deff391fe865ac56a7b1"
+    },
+    "strategy": {
+      "source_commit": "6606554d3f3d55b7d943fda49323b54eac21619d"
+    }
+  },
+  "runner_sha256": "8c48dcd3514481b8ff0937d21050e7415a208b5f4df09024212c10d69938e5c0",
+  "seconds": 119.79700000000003,
+  "files": {
+    "build.log": "fa84343e59b269651e177002c0986c0b26de1ba06f5e78ba3f5d73d3a196a4fe",
+    "parameters.json": "dabdf0ff150d9d17fc461a84ca9c57ee93b95d9aa6bc8a3d5fc5c3c0d42a9d1e",
+    "request.json": "64c2bb4b6f24c6e63ae216009af763c4b445ce061fa237b0fb6c309564ff2089",
+    "run.py": "0c5b3d0297d70d1ddc6a9b4658d0adca0b04557cefeee23c555114853d199e38",
+    "runner.exe": "8c48dcd3514481b8ff0937d21050e7415a208b5f4df09024212c10d69938e5c0"
+  }
+}

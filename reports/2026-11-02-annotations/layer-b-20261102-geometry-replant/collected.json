@@ -1,0 +1,27 @@
+{
+  "label": "layer-b-20261102-geometry-replant",
+  "run": {
+    "conclusion": "success",
+    "databaseId": 41337088945,
+    "headSha": "5e5a7d2b5f5b10dbb8595a5b6b934c28a12a987a",
+    "status": "completed",
+    "url": "https://github.com/xiaoyun-official/fe-62-evaluation/actions/runs/41337088945"
+  },
+  "first": 296,
+  "mean": 86.34,
+  "sun": 122.87082078603969,
+  "causes": {
+    "gargantuar_smash:row2:kind42": 66,
+    "gargantuar_smash:row5:kind42": 85,
+    "home:row1:kind32": 68,
+    "home:row1:kind7": 18,
+    "home:row5:kind24": 4,
+    "home:row5:kind7": 7,
+    "home:row6:kind22": 1,
+    "home:row6:kind24": 6,
+    "home:row6:kind32": 28,
+    "home:row6:kind7": 1,
+    "jack_explosion:row3:kind42": 2,
+    "jack_explosion:row4:kind42": 14
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "label": "g07-20261102-annotations-r3",
+  "run": {
+    "conclusion": "success",
+    "databaseId": 41326437466,
+    "headSha": "2a2f57bb003972c126886b429c02d76f5f650a6a",
+    "status": "completed",
+    "url": "https://github.com/PvZ-Unofficial/fe-62-evaluation/actions/runs/41326437466"
+  },
+  "first": 297,
+  "mean": 82.40666666666667,
+  "sun": 120.29872178626324,
+  "causes": {
+    "gargantuar_smash:row2:kind42": 67,
+    "gargantuar_smash:row5:kind42": 87,
+    "home:row1:kind32": 54,
+    "home:row1:kind7": 25,
+    "home:row5:kind24": 10,
+    "home:row5:kind7": 10,
+    "home:row6:kind24": 6,
+    "home:row6:kind32": 23,
+    "home:row6:kind7": 7,
+    "jack_explosion:row3:kind42": 4,
+    "jack_explosion:row4:kind42": 7
+  }
+}

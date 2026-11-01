@@ -1,0 +1,25 @@
+{
+  "label": "final-20261102-annotations-no-g02",
+  "run": {
+    "conclusion": "success",
+    "databaseId": 41335360605,
+    "headSha": "84e3bbb42ec0df5f2c509c1380f9120b6b532993",
+    "status": "completed",
+    "url": "https://github.com/xiaoyun-official/fe-62-evaluation/actions/runs/41335360605"
+  },
+  "first": 298,
+  "mean": 91.18333333333334,
+  "sun": 121.19904953390605,
+  "causes": {
+    "gargantuar_smash:row2:kind42": 76,
+    "gargantuar_smash:row5:kind42": 75,
+    "home:row1:kind32": 61,
+    "home:row1:kind7": 23,
+    "home:row5:kind24": 5,
+    "home:row5:kind7": 10,
+    "home:row6:kind24": 9,
+    "home:row6:kind32": 34,
+    "jack_explosion:row3:kind42": 1,
+    "jack_explosion:row4:kind42": 6
+  }
+}

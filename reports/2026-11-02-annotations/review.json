@@ -1,0 +1,139 @@
+{
+  "gates": {
+    "group2": {
+      "base": "444dc5d",
+      "mean": 68.14666666666666,
+      "sd": 65.89952691571165,
+      "sun": 48.5179025630992,
+      "batch": "g02-20261101-annotations-r2"
+    },
+    "group7": {
+      "base": "78eea62",
+      "mean": 81.58333333333333,
+      "sd": 81.14492004464849,
+      "sun": 120.13278855975486,
+      "batch": "g07-20261102-annotations-r3"
+    }
+  },
+  "regression_rule": "A fall of at least 15 percent AND more than two combined standard errors triggers investigation or isolation; also inspect concrete implementation failures.",
+  "candidate": "b87c386d876d4bc11a708763bbdbbcc4efe407e2",
+  "reviews": [
+    {
+      "group": "2",
+      "changes": [
+        "Rebuild pending Squash predictions when canceling ash; avoid relying on the removed event to select a Squash target",
+        "Wake deferred Cherry in a non-ash wave at its actual due frame"
+      ],
+      "validation": "212 unit tests passed, 2 ignored; cross-wave due-frame regression test added"
+    },
+    {
+      "group": "7",
+      "changes": [
+        "Remove unproven ice-only wait; retain existing bounded projected coverage comparison",
+        "Align future Puff to decision cadence, preserve fallback lead time and contested card windows",
+        "Do not let one waitable actor terminate row rescue assessment",
+        "Preserve committed Squash hits during rescue admission and execution"
+      ],
+      "review_fix": "Canceled r2 after finding missing mandatory-Cherry/interception priority; r3 includes admission guards"
+    },
+    {
+      "group": "annotation3",
+      "changes": [
+        "Use circle/rectangle geometry for opened Jack safety",
+        "Existing recovery fixture used a false-positive horizontal-only overlap; move fixture to true overlap and add exact annotated boundary checks"
+      ]
+    },
+    {
+      "group": "annotation4",
+      "changes": [
+        "Evaluate all native horizontal offsets when considering optional same-cell Puff replacement"
+      ],
+      "validation": "Original annotated snapshot has unsafe outcomes at -1 and other offsets despite safe nominal placement"
+    },
+    {
+      "group": "annotation2",
+      "changes": [
+        "Fresh baseline for W20 carry comparison",
+        "Include one forward cell beyond immediate foot cells",
+        "Reject no-benefit candidates and preserve pending Squash damage"
+      ]
+    },
+    {
+      "group": "annotation1",
+      "changes": [
+        "Bounded projected wait for a different existing Puff cell to become vacant",
+        "Require the specific pending Cherry hit, not unrelated future ash count"
+      ],
+      "validation": "Original frozen scene: mandatory target true; different-cell wait accepted. Four original endpoints unchanged. Removed redundant ghost handling after public live-cell checks disproved its necessity."
+    }
+  ],
+  "preserved_user_files": [
+    "src/diagnostics.rs",
+    "src/lib.rs",
+    "src/live_display.rs"
+  ],
+  "annotated_acceptance": {
+    "matched": 4,
+    "readonly": true,
+    "checks": [
+      "ACCEPT REPLANT danger=604 death=100000",
+      "ACCEPT GAP required=true spent_col2=false waits=true",
+      "ACCEPT JACK old_safe=true geometry_hit=true x=381.45856 countdown=54"
+    ]
+  },
+  "tests": {
+    "passed": 212,
+    "ignored": 2,
+    "format": "passed"
+  },
+  "final_candidate": "6606554d3f3d55b7d943fda49323b54eac21619d",
+  "selection": {
+    "group2": "Rejected: -15.60%, -2.14 combined SE against old group1. Original group2 features and new revision isolated.",
+    "group7": "Retained: 82.41 vs 81.58, net sun120.30 vs120.13.",
+    "assembly": "Rebuilt from old group1; retained later accepted groups and annotated fixes, plus independent committed-Squash blocker protection.",
+    "experiment_branch": "codex/annotations-r2-g02",
+    "experiment_commit": "6e3a8f620542281a0566aee640de05447fe29a98",
+    "combined_experiment_branch": "codex/experiment-annotations-r2-with-group2"
+  },
+  "annotation_layers": [
+    {
+      "layer": "A",
+      "commit": "7d59829a65edb3477653bc0dfe7e7eec78b7f2a6",
+      "label": "layer-a-20261102-no-annotations",
+      "changes": "Rollback original group2; revised group7; other accepted changes, without the four annotation fixes",
+      "shards": 60,
+      "roots_per_shard": 5
+    },
+    {
+      "layer": "B",
+      "commit": "0be73978517e702f997a9a71c170a4bb70c6e73f",
+      "label": "layer-b-20261102-geometry-replant",
+      "changes": "A plus figures3/4 geometry and replant-offset fixes",
+      "shards": 60,
+      "roots_per_shard": 5
+    },
+    {
+      "layer": "C",
+      "commit": "6606554d3f3d55b7d943fda49323b54eac21619d",
+      "label": "final-20261102-annotations-no-g02",
+      "changes": "B plus figures1/2 delayed cross-cell interception and forward carry pads",
+      "shards": 6,
+      "reused_in_progress": true
+    }
+  ],
+  "partition_validation": "60 shards preserve all 300 original roots and every published metric exactly; 8 CI tests passed.",
+  "observed_peak_jobs": {
+    "xiaoyun-official": 20,
+    "PvZ-Unofficial": 20
+  },
+  "c_acceleration": "After A/B completed, reuse completed original C shard0 and the original frozen binary/request; split remaining250 roots into50 five-root jobs across both owners. Keep original running until one complete validated300-root result is available; do not count duplicate execution as new samples.",
+  "c_acceleration_outcome": {
+    "selected_label": "final-20261102-annotations-no-g02",
+    "original_won": true
+  },
+  "retained_tests": {
+    "passed": 210,
+    "ignored": 2,
+    "format": "passed"
+  }
+}
