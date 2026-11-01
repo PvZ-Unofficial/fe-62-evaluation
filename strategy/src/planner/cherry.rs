@@ -21,6 +21,7 @@ pub(super) struct Debt {
 #[derive(Clone)]
 pub(crate) struct State {
     pub(super) debts: Vec<Debt>,
+    pub(super) hard: Vec<ZombieId>,
     pub(super) alternative: Option<Pos>,
     pub(super) alternative_targets: Vec<ZombieId>,
 }
@@ -28,6 +29,7 @@ impl Default for State {
     fn default() -> Self {
         Self {
             debts: Vec::with_capacity(64),
+            hard: Vec::with_capacity(32),
             alternative: None,
             alternative_targets: Vec::with_capacity(64),
         }
@@ -35,6 +37,28 @@ impl Default for State {
 }
 impl State {
     pub fn refresh(&mut self, scene: &Scene) {
+        self.hard
+            .retain(|id| scene.zombies.iter().any(|z| z.id == *id) && telemetry::damage_history(*id).0 == 0);
+        for z in &scene.zombies {
+            if z.kind == Z::GigaGargantuar
+                && matches!(z.row, 1 | 2)
+                && z.x <= 450.
+                && telemetry::damage_history(z.id).0 == 0
+                && !self.hard.contains(&z.id)
+            {
+                self.hard.push(z.id);
+            }
+        }
+        for &id in &self.hard {
+            if !self.debts.iter().any(|d| d.id == id) {
+                self.debts.push(Debt {
+                    id,
+                    hits: 0,
+                    planned: false,
+                });
+            }
+        }
+
         self.debts
             .retain(|d| scene.zombies.iter().any(|z| z.id == d.id) && telemetry::damage_history(d.id).0 <= d.hits);
     }
@@ -50,6 +74,44 @@ fn damage_gap(z: Zombie, hits: i32) -> bool {
             2 => z.hp > 3600,
             _ => false,
         }
+}
+
+#[cfg(test)]
+#[test]
+fn low_health_does_not_erase_an_unresolved_cherry_obligation() {
+    use rsvz_pvz_emulator_backend::{PeBackend, PeWorldConfig, runner_internal::PeWorldOwner};
+    let mut world = PeWorldOwner::new_reset(PeWorldConfig::default())
+        .unwrap()
+        .install_current()
+        .unwrap();
+    world.with_backend(|b| {
+        PeBackend::scope_backend(b, || {
+            let z = Zombie {
+                age: 0,
+                id: ZombieId::from_raw(65537),
+                kind: Z::GigaGargantuar,
+                row: 2,
+                wave: 1,
+                carried: false,
+                x: 300.,
+                hp: 2200,
+                armor: 0,
+                phase: ZombiePhase::ZombieNormal,
+                progress: 0.,
+                speed: 0.37,
+                frozen: 0,
+                chilled: 0,
+                object: false,
+                eating: false,
+                rect: ContactRect::new(283, 100, 408, 254),
+            };
+            let scene = Scene::fixture(vec![z]);
+            let mut state = State::default();
+            assert!(!damage_gap(z, 1));
+            assert!(select(&scene, &Forecast::default(), 100, [true; CANDIDATES], false, &mut state).is_some());
+            assert!(state.required(z.id));
+        })
+    });
 }
 
 struct Target {
@@ -152,12 +214,16 @@ pub(super) fn select(
         if base.safe() && base.death < NEVER {
             state.debts.retain(|d| d.id != z.id || !d.planned);
         }
-        if damage_gap(z, hit_count) && next_doom.is_none_or(|i| base.ash_mask & (1 << i) == 0) && !state.required(z.id)
+        let unresolved_before_next_ash =
+            z.kind == Z::GigaGargantuar && z.x <= 500. && !base.safe() && base.danger > at && base.death > base.danger;
+        if (damage_gap(z, hit_count) || unresolved_before_next_ash)
+            && next_doom.is_none_or(|i| base.ash_mask & (1 << i) == 0)
+            && !state.required(z.id)
         {
             state.debts.push(Debt {
                 id: z.id,
                 hits: hit_count,
-                planned: false,
+                planned: !damage_gap(z, hit_count),
             });
             telemetry::record(
                 "cherry_obligation",
@@ -203,8 +269,19 @@ pub(super) fn select(
         });
     }
     // Keep the flag-wave rightward preference when there is no required damage.
-    let legal = std::array::from_fn(|i| legal[i] && (!flag || !state.debts.is_empty() || position(i).1 >= 8));
-    let pos = choose(&targets, &shapes, legal);
+    let legal: [bool; CANDIDATES] =
+        std::array::from_fn(|i| legal[i] && (!flag || !state.debts.is_empty() || position(i).1 >= 8));
+    // Hard first-hit duties are feasibility constraints, never score bonuses.
+    let hard_legal = std::array::from_fn(|i| {
+        legal[i]
+            && state.hard.iter().all(|id| {
+                targets
+                    .iter()
+                    .find(|t| t.id == *id)
+                    .is_some_and(|t| hits(t, shapes[i], position(i), t.needs_retention))
+            })
+    });
+    let pos = choose(&targets, &shapes, hard_legal);
     if let Some(pos) = pos {
         for target in &targets {
             if let Some(count) = target.dependency {
@@ -223,7 +300,7 @@ pub(super) fn select(
         }
     }
     if at <= 100 {
-        if let (Some(chosen), Some(other)) = (pos, choose_with(&targets, &shapes, legal, false)) {
+        if let (Some(chosen), Some(other)) = (pos, choose_with(&targets, &shapes, hard_legal, false)) {
             if score(&targets, &shapes, index(other), false) > score(&targets, &shapes, index(chosen), false) {
                 state.alternative = Some(other);
                 state.alternative_targets.extend(
