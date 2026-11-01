@@ -1,0 +1,27 @@
+{
+  "label": "g03-20261101-water-nuke",
+  "run": {
+    "conclusion": "success",
+    "databaseId": 41282572835,
+    "headSha": "70cf62e0981017fbaee1f191232e639a285557a5",
+    "status": "completed",
+    "url": "https://github.com/PvZ-Unofficial/fe-62-evaluation/actions/runs/41282572835"
+  },
+  "first": 295,
+  "mean": 56.913333333333334,
+  "sun": 47.786107531919875,
+  "causes": {
+    "gargantuar_smash:row2:kind42": 52,
+    "gargantuar_smash:row5:kind42": 78,
+    "home:row1:kind23": 2,
+    "home:row1:kind32": 73,
+    "home:row1:kind7": 39,
+    "home:row5:kind24": 6,
+    "home:row5:kind7": 16,
+    "home:row6:kind24": 2,
+    "home:row6:kind32": 15,
+    "home:row6:kind7": 7,
+    "jack_explosion:row3:kind42": 1,
+    "jack_explosion:row4:kind42": 9
+  }
+}

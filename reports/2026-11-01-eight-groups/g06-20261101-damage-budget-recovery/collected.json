@@ -1,0 +1,25 @@
+{
+  "label": "g06-20261101-damage-budget-recovery",
+  "run": {
+    "conclusion": "success",
+    "databaseId": 41297604242,
+    "headSha": "7499456e368c8684b65492c1ed5715a26e4a7387",
+    "status": "completed",
+    "url": "https://github.com/xiaoyun-official/fe-62-evaluation/actions/runs/41297604242"
+  },
+  "first": 294,
+  "mean": 81.58333333333333,
+  "sun": 120.13278855975486,
+  "causes": {
+    "gargantuar_smash:row2:kind42": 57,
+    "gargantuar_smash:row5:kind42": 76,
+    "home:row1:kind32": 64,
+    "home:row1:kind7": 31,
+    "home:row5:kind24": 8,
+    "home:row5:kind7": 10,
+    "home:row6:kind24": 5,
+    "home:row6:kind32": 18,
+    "home:row6:kind7": 20,
+    "jack_explosion:row4:kind42": 11
+  }
+}

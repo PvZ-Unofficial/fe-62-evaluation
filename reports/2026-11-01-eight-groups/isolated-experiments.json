@@ -1,0 +1,11 @@
+[
+  {
+    "branch": "codex/experiment-two-lane-order",
+    "reason": "Both original and corrected timing queries in the recorded Figure15 scene prefer the original five-lane allocation; that differs from the demonstrated useful one-lane-first native intervention. Extra lookahead has not met the local acceptance check and is not retained.",
+    "proofs": [
+      "pair-proof/run",
+      "pair-proof/timing-fixed"
+    ],
+    "cloud_test": "not dispatched: local acceptance failed"
+  }
+]

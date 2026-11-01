@@ -1,0 +1,10 @@
+{
+  "unit_passed": 211,
+  "unit_ignored": 2,
+  "format_check": "passed",
+  "frozen_smoke_commit": "6d4da123f6136bb9cf67a2af91cf64a5e1476ea9",
+  "frozen_smoke_roots": 3,
+  "frozen_smoke_successful_rounds": 6,
+  "regression_diagnostic_matched": 5,
+  "recovery_merge_validation": "All published metrics and all300 root/round validation reproduced from a split/merge fixture"
+}

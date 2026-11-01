@@ -1,0 +1,26 @@
+{
+  "label": "g05-20261101-basketball-recovery",
+  "run": {
+    "conclusion": "success",
+    "databaseId": 41294943601,
+    "headSha": "6fc2101dc589ca29aee704ad192a9c3ec21b04e9",
+    "status": "completed",
+    "url": "https://github.com/PvZ-Unofficial/fe-62-evaluation/actions/runs/41294943601"
+  },
+  "first": 298,
+  "mean": 71.69666666666667,
+  "sun": 120.09158956715794,
+  "causes": {
+    "gargantuar_smash:row2:kind42": 59,
+    "gargantuar_smash:row5:kind42": 91,
+    "home:row1:kind32": 58,
+    "home:row1:kind7": 29,
+    "home:row5:kind24": 7,
+    "home:row5:kind7": 4,
+    "home:row6:kind24": 3,
+    "home:row6:kind32": 24,
+    "home:row6:kind7": 7,
+    "jack_explosion:row3:kind42": 1,
+    "jack_explosion:row4:kind42": 17
+  }
+}

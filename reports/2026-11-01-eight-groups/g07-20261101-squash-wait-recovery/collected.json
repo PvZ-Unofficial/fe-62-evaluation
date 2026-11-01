@@ -1,0 +1,25 @@
+{
+  "label": "g07-20261101-squash-wait-recovery",
+  "run": {
+    "conclusion": "success",
+    "databaseId": 41295682040,
+    "headSha": "efffc1240b234cbf5076bf3948773eb3cfd7b838",
+    "status": "completed",
+    "url": "https://github.com/PvZ-Unofficial/fe-62-evaluation/actions/runs/41295682040"
+  },
+  "first": 298,
+  "mean": 71.38,
+  "sun": 104.16199682450733,
+  "causes": {
+    "gargantuar_smash:row2:kind42": 60,
+    "gargantuar_smash:row5:kind42": 86,
+    "home:row1:kind32": 64,
+    "home:row1:kind7": 22,
+    "home:row5:kind24": 5,
+    "home:row5:kind7": 3,
+    "home:row6:kind24": 1,
+    "home:row6:kind32": 39,
+    "home:row6:kind7": 8,
+    "jack_explosion:row4:kind42": 12
+  }
+}

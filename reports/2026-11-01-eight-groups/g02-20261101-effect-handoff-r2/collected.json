@@ -1,0 +1,25 @@
+{
+  "label": "g02-20261101-effect-handoff-r2",
+  "run": {
+    "conclusion": "success",
+    "databaseId": 41285353129,
+    "headSha": "d935827928f503850c9fdf738851434f090e8fdd",
+    "status": "completed",
+    "url": "https://github.com/PvZ-Unofficial/fe-62-evaluation/actions/runs/41285353129"
+  },
+  "first": 293,
+  "mean": 56.223333333333336,
+  "sun": 47.969407719215035,
+  "causes": {
+    "gargantuar_smash:row2:kind42": 68,
+    "gargantuar_smash:row5:kind42": 82,
+    "home:row1:kind32": 51,
+    "home:row1:kind7": 38,
+    "home:row5:kind24": 4,
+    "home:row5:kind7": 20,
+    "home:row6:kind24": 3,
+    "home:row6:kind32": 23,
+    "home:row6:kind7": 5,
+    "jack_explosion:row4:kind42": 6
+  }
+}

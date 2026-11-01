@@ -1,0 +1,25 @@
+{
+  "label": "g08-20261101-tail-football-recovery",
+  "run": {
+    "conclusion": "success",
+    "databaseId": 41296005239,
+    "headSha": "9cf75db3655119b6a6bdd6ecdc4b2f6f5dd1163d",
+    "status": "completed",
+    "url": "https://github.com/xiaoyun-official/fe-62-evaluation/actions/runs/41296005239"
+  },
+  "first": 299,
+  "mean": 79.07666666666667,
+  "sun": 116.07090165662015,
+  "causes": {
+    "gargantuar_smash:row2:kind42": 62,
+    "gargantuar_smash:row5:kind42": 105,
+    "home:row1:kind32": 64,
+    "home:row1:kind7": 17,
+    "home:row5:kind24": 3,
+    "home:row5:kind7": 11,
+    "home:row6:kind24": 2,
+    "home:row6:kind32": 20,
+    "home:row6:kind7": 2,
+    "jack_explosion:row4:kind42": 14
+  }
+}

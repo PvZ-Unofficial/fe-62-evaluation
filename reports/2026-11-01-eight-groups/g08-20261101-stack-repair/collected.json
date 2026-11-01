@@ -1,0 +1,26 @@
+{
+  "label": "g08-20261101-stack-repair",
+  "run": {
+    "conclusion": "success",
+    "databaseId": 41292874632,
+    "headSha": "bb083e4171330d662a4fd05cd79d51feba810c90",
+    "status": "completed",
+    "url": "https://github.com/xiaoyun-official/fe-62-evaluation/actions/runs/41292874632"
+  },
+  "first": 297,
+  "mean": 78.31333333333333,
+  "sun": 115.30497148208053,
+  "causes": {
+    "gargantuar_smash:row2:kind42": 79,
+    "gargantuar_smash:row5:kind42": 77,
+    "home:row1:kind32": 66,
+    "home:row1:kind7": 23,
+    "home:row5:kind24": 6,
+    "home:row5:kind7": 6,
+    "home:row6:kind24": 1,
+    "home:row6:kind32": 26,
+    "jack_explosion:row3:kind42": 3,
+    "jack_explosion:row4:kind42": 12,
+    "zombie_chew:row5:kind42": 1
+  }
+}

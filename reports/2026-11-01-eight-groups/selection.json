@@ -1,0 +1,25 @@
+{
+  "branch": "codex/annotated-followup-final",
+  "behavior_commit": "6d4da123f6136bb9cf67a2af91cf64a5e1476ea9",
+  "retained": "完整8组组合及窝瓜承诺伤害保护修复",
+  "low_cost_branch": "codex/followup-low-cost-20261101",
+  "low_cost_commit": "444dc5de48ce5fea79a56a1ebda4f9bea915564e",
+  "isolated": [
+    {
+      "branch": "codex/experiment-effect-handoff-original",
+      "commit": "1fd727e648f98aa9d0899b2cb249cd38c9b9da4b",
+      "reason": "第2组初版平均68.15→56.22，明确下降；保留修复后的版本，不把初版作为最终候选。"
+    },
+    {
+      "branch": "codex/experiment-two-lane-order",
+      "commit": "9847c5cc45019264252c1c1c5bc80807b92e191a",
+      "reason": "额外双卡顺序比较未通过图15局部选择验收，未纳入保留代码；未继续启动无验收依据的云端批次。"
+    }
+  ],
+  "limitations": [
+    "第2组修复版59.78关仍低于第1组68.15关，差值约1.62个合并标准误；不能宣称单组性能已完全恢复，也不能把全部初版回退归因于一个场景。",
+    "完整组合修复前79.08、修复后78.31，差值约0.12个合并标准误；保留修复真实承诺伤害破坏问题的版本。",
+    "第7组平均关数点估计下降约12.5%，净耗同时下降约13.3%，差值约1.60个合并标准误；不宣称它提高平均关数，结合最终组合保留。",
+    "第6组保留残余伤害及临近灰烬排序；完整双卡顺序扩展作为未采用原型隔离。"
+  ]
+}

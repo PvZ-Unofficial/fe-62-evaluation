@@ -1,0 +1,27 @@
+{
+  "label": "g02-20261101-commitment-recovery",
+  "run": {
+    "conclusion": "success",
+    "databaseId": 41298967630,
+    "headSha": "39380ce8318c92aa438005aac01c90782ecf913d",
+    "status": "completed",
+    "url": "https://github.com/PvZ-Unofficial/fe-62-evaluation/actions/runs/41298967630"
+  },
+  "first": 295,
+  "mean": 59.78,
+  "sun": 49.208207873313256,
+  "causes": {
+    "gargantuar_smash:row2:kind42": 62,
+    "gargantuar_smash:row5:kind42": 77,
+    "home:row1:kind23": 2,
+    "home:row1:kind32": 53,
+    "home:row1:kind7": 37,
+    "home:row5:kind24": 5,
+    "home:row5:kind7": 15,
+    "home:row6:kind24": 8,
+    "home:row6:kind32": 23,
+    "home:row6:kind7": 10,
+    "jack_explosion:row3:kind42": 1,
+    "jack_explosion:row4:kind42": 7
+  }
+}

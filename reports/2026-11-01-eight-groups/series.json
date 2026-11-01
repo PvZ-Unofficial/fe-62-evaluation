@@ -1,0 +1,42 @@
+[
+  {
+    "group": 3,
+    "label": "g03-20261101-water-nuke",
+    "commit": "cbe1c8da0166db1cbbbc68975f14e6a142f49ec2"
+  },
+  {
+    "group": 1,
+    "label": "g01-20261101-hard-first-hit-r2",
+    "commit": "444dc5de48ce5fea79a56a1ebda4f9bea915564e"
+  },
+  {
+    "group": 2,
+    "label": "g02-20261101-effect-handoff-r2",
+    "commit": "1fd727e648f98aa9d0899b2cb249cd38c9b9da4b"
+  },
+  {
+    "group": 4,
+    "label": "g04-20261101-ice-timing-recovery",
+    "commit": "8f5cce09a72fcd474bb55eca74150b33b6522ca0"
+  },
+  {
+    "group": 5,
+    "label": "g05-20261101-basketball-recovery",
+    "commit": "8b4a4dafd693629ae8854857d1cf4568e0448a76"
+  },
+  {
+    "group": 6,
+    "label": "g06-20261101-damage-budget-recovery",
+    "commit": "78eea62e84329fd9c2681bc9c5c5493e395cd8e7"
+  },
+  {
+    "group": 7,
+    "label": "g07-20261101-squash-wait-recovery",
+    "commit": "e39e40de4303a5ffbfcb7b24adb5bbbaa05b34ee"
+  },
+  {
+    "group": 8,
+    "label": "g08-20261101-tail-football-recovery",
+    "commit": "79b5b1f446a3152b91835a055f1ad2350ef08ef4"
+  }
+]

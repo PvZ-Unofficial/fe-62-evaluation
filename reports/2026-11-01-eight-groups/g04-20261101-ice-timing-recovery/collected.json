@@ -1,0 +1,27 @@
+{
+  "label": "g04-20261101-ice-timing-recovery",
+  "run": {
+    "conclusion": "success",
+    "databaseId": 41292709867,
+    "headSha": "03c73af14e2a54f0f382b11d58d118aeeca639e2",
+    "status": "completed",
+    "url": "https://github.com/xiaoyun-official/fe-62-evaluation/actions/runs/41292709867"
+  },
+  "first": 296,
+  "mean": 74.53,
+  "sun": 118.46124603068115,
+  "causes": {
+    "gargantuar_smash:row2:kind42": 57,
+    "gargantuar_smash:row5:kind42": 96,
+    "home:row1:kind32": 59,
+    "home:row1:kind7": 14,
+    "home:row5:kind24": 11,
+    "home:row5:kind7": 10,
+    "home:row6:kind24": 6,
+    "home:row6:kind32": 17,
+    "home:row6:kind7": 11,
+    "jack_explosion:row3:kind42": 1,
+    "jack_explosion:row4:kind42": 17,
+    "zombie_chew:row3:kind42": 1
+  }
+}
