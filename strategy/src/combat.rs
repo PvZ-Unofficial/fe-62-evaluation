@@ -163,9 +163,9 @@ pub fn doom_position(preferred: Pos, nine_only: bool) -> Option<Pos> {
 }
 pub fn doom_position_except(preferred: Pos, nine_only: bool, excluded: Option<Pos>) -> Option<Pos> {
     let candidates = [preferred, (3, 7), (4, 7), (3, 8), (4, 8), (3, 9), (4, 9)];
-    candidates.into_iter().find(|&p| {
-        Some(p) != excluded && (!nine_only || p.1 == 9) && candidate(sel(DoomShroom), p) && jack_safe(p, 100)
-    })
+    candidates
+        .into_iter()
+        .find(|&p| Some(p) != excluded && (!nine_only || p.1 == 9) && candidate(sel(DoomShroom), p))
 }
 pub fn doom(preferred: Pos, nine_only: bool) -> bool {
     if !ready(sel(DoomShroom)) {

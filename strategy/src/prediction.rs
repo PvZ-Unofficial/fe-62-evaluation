@@ -9,6 +9,7 @@ use rsvz::core::model::{
 use rsvz::core::zombie_motion::vanilla_track_frames;
 use std::collections::HashMap;
 use std::sync::OnceLock;
+pub(crate) mod football_contact;
 pub(crate) mod imp_landing;
 mod projectiles;
 
@@ -35,6 +36,7 @@ fn hammer_already_landed(progress: f32, chilled: bool) -> bool {
 
 #[derive(Clone, Copy, Debug)]
 pub struct Zombie {
+    pub age: i32,
     pub id: ZombieId,
     pub kind: Z,
     pub row: i32,
@@ -221,6 +223,7 @@ impl Scene {
                     first.1 = now;
                 }
                 self.zombies.push(Zombie {
+                    age: b.zombie_age(z),
                     id,
                     kind,
                     row,
@@ -320,6 +323,10 @@ impl Scene {
     pub fn contains_zombie(&self, id: ZombieId) -> bool {
         self.cold.get(&id).is_some_and(|entry| entry.3 == self.now)
     }
+    pub fn basketball_active(&self, row: i32) -> bool {
+        self.projectiles.active(row)
+    }
+
     pub fn projectile_key(&self, row: i32) -> u64 {
         if self
             .plants
@@ -963,6 +970,7 @@ pub fn simulate_action(z: Zombie, scene: &Scene, forecast: &Forecast, extra: Opt
 
 fn plant_observer(row: i32) -> Zombie {
     Zombie {
+        age: 0,
         id: ZombieId::from_raw(0),
         kind: Z::GigaGargantuar,
         row,
@@ -1010,7 +1018,12 @@ pub fn simulate_until(z: Zombie, scene: &Scene, forecast: &Forecast, extra: Opti
     // A failed nominal block needs no extra work. Only an already raised,
     // still pending hammer with an offset-sensitive contact opens this path.
     // This does not enumerate pixels or fork every candidate's trajectory.
-    if out.trigger == NEVER || !pending_hammer_edge(scene, z, pad, horizon) {
+    let close_consumption = out.trigger < NEVER && out.impact < NEVER && (out.impact - out.trigger).abs() <= 50;
+    if out.trigger == NEVER
+        || !(pending_hammer_edge(scene, z, pad, horizon)
+            || puff_offset_changes_contact(z, z.x, pad)
+            || close_consumption)
+    {
         return out;
     }
     let started = scene.edge_stats.then(std::time::Instant::now);
@@ -2354,6 +2367,7 @@ fn simulate_state(
     }
     if let Some(state) = final_state {
         *state = Zombie {
+            age: z.age + dt,
             x,
             rect: z.rect_at(x),
             hp: health,
@@ -2876,6 +2890,7 @@ mod tests {
     #[test]
     fn scheduled_ice_body_waits_for_planting_and_preserves_activation_time() {
         let z = Zombie {
+            age: 0,
             id: ZombieId::from_raw(65537),
             kind: Z::GigaGargantuar,
             row: 6,
@@ -3432,6 +3447,7 @@ mod tests {
 
     fn tail_red(x: f32) -> Zombie {
         Zombie {
+            age: 0,
             id: ZombieId::from_raw(65537),
             kind: Z::GigaGargantuar,
             row: 6,
@@ -3748,7 +3764,9 @@ mod tests {
         z.speed = 0.66;
         let mut pad = Pad::new((6, 3), PuffShroom);
         pad.hp = 4;
-        let out = simulate_until(z, &scene, &Forecast::default(), Some(pad), 5);
+        // Check the movement reset at a known physical rectangle, independently
+        // of the new candidate's unknown placement offset.
+        let out = simulate_range(z, &scene, &Forecast::default(), Some(pad), 5, false, None, 0);
         assert_eq!(out.impact, 1);
         let mut expected_x = z.x;
         let mut progress = 0.;
@@ -3756,6 +3774,15 @@ mod tests {
             walk_step(&mut expected_x, &mut progress, 0.68, false, false);
         }
         assert_eq!(out.x5.to_bits(), expected_x.to_bits());
+    }
+    #[test]
+    fn near_contact_puff_can_wait_for_the_giant_across_offsets() {
+        let z = tail_red(279.13);
+        let scene = Scene::fixture(vec![z]);
+        let mut pad = Pad::new((z.row, 3), PuffShroom);
+        pad.complete_outcome = true;
+        let out = simulate_until(z, &scene, &Forecast::default(), Some(pad), 600);
+        assert!(out.trigger < 100 && out.impact > out.trigger, "{out:?}");
     }
     #[test]
     fn storage_waits_for_pending_throws_and_visible_imps() {
@@ -4071,6 +4098,7 @@ mod tests {
             let giant = index % 3 != 0;
             let x = 180. + (next() % 36000) as f32 / 100.;
             let z = Zombie {
+                age: 0,
                 id: ZombieId::from_raw(65536),
                 kind: if giant { Z::GigaGargantuar } else { Z::Football },
                 row: 5,
@@ -4181,6 +4209,7 @@ mod tests {
             effect: 0,
         });
         let z = Zombie {
+            age: 0,
             id: ZombieId::from_raw(65537),
             kind: Z::GigaGargantuar,
             row: 5,
@@ -4236,6 +4265,7 @@ mod tests {
             };
             let x = (next() % 104000) as f32 * 0.01 - 200.;
             let z = Zombie {
+                age: 0,
                 id: ZombieId::from_raw(65536),
                 kind: if giant { Z::GigaGargantuar } else { Z::Football },
                 row: 5,
