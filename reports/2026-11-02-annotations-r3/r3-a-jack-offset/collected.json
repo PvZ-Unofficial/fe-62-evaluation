@@ -1,0 +1,25 @@
+{
+  "label": "r3-a-jack-offset",
+  "run": {
+    "conclusion": "success",
+    "databaseId": 41433963650,
+    "headSha": "3f5a7169b748773abe600f31e1ae274fd7052871",
+    "status": "completed",
+    "url": "https://github.com/PvZ-Unofficial/fe-62-evaluation/actions/runs/41433963650"
+  },
+  "first": 297,
+  "mean": 83.48,
+  "sun": 122.27779108768567,
+  "causes": {
+    "gargantuar_smash:row2:kind42": 71,
+    "gargantuar_smash:row5:kind42": 91,
+    "home:row1:kind32": 67,
+    "home:row1:kind7": 22,
+    "home:row5:kind24": 4,
+    "home:row5:kind7": 10,
+    "home:row6:kind24": 8,
+    "home:row6:kind32": 24,
+    "home:row6:kind7": 1,
+    "jack_explosion:row4:kind42": 2
+  }
+}

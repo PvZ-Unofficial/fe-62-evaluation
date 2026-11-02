@@ -1,0 +1,25 @@
+{
+  "label": "r3-b-buffer-deadline",
+  "run": {
+    "conclusion": "success",
+    "databaseId": 41434125255,
+    "headSha": "ab356d6b683c7b0154be10bb98e9a7504f592d31",
+    "status": "completed",
+    "url": "https://github.com/xiaoyun-official/fe-62-evaluation/actions/runs/41434125255"
+  },
+  "first": 295,
+  "mean": 77.77,
+  "sun": 121.37285157087138,
+  "causes": {
+    "gargantuar_smash:row2:kind42": 77,
+    "gargantuar_smash:row5:kind42": 80,
+    "home:row1:kind32": 63,
+    "home:row1:kind7": 33,
+    "home:row5:kind24": 4,
+    "home:row5:kind7": 3,
+    "home:row6:kind24": 8,
+    "home:row6:kind32": 24,
+    "home:row6:kind7": 1,
+    "jack_explosion:row4:kind42": 7
+  }
+}

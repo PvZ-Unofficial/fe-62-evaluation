@@ -1,0 +1,24 @@
+{
+  "label": "r3-c-squash-rescue",
+  "run": {
+    "conclusion": "success",
+    "databaseId": 41434520746,
+    "headSha": "a9306ae378095a38bc38c13ffe3041f54fe9f4c2",
+    "status": "completed",
+    "url": "https://github.com/PvZ-Unofficial/fe-62-evaluation/actions/runs/41434520746"
+  },
+  "first": 296,
+  "mean": 89.74666666666667,
+  "sun": 122.72229237854702,
+  "causes": {
+    "gargantuar_smash:row2:kind42": 72,
+    "gargantuar_smash:row5:kind42": 93,
+    "home:row1:kind32": 52,
+    "home:row1:kind7": 26,
+    "home:row5:kind24": 8,
+    "home:row5:kind7": 14,
+    "home:row6:kind24": 2,
+    "home:row6:kind32": 27,
+    "jack_explosion:row4:kind42": 6
+  }
+}

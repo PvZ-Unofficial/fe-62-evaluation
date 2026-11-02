@@ -1,0 +1,87 @@
+{
+  "baseline": {
+    "commit": "6606554",
+    "mean": 91.18333333333334,
+    "sun": 121.19904953390605,
+    "first": 298
+  },
+  "rows": [
+    {
+      "label": "r3-a-jack-offset",
+      "commit": "0ca22513c4ad8fe2ba32223eb9d0b29e52700bdb",
+      "first": 297,
+      "mean": 83.48,
+      "sd": 82.6401491255409,
+      "sun": 122.27779108768567,
+      "difference": -7.703333333333333,
+      "percent": -8.448181319685613,
+      "standard_errors": -1.0650171107045598,
+      "investigate": false,
+      "workflow": {
+        "conclusion": "success",
+        "databaseId": 41433963650,
+        "headSha": "3f5a7169b748773abe600f31e1ae274fd7052871",
+        "status": "completed",
+        "url": "https://github.com/PvZ-Unofficial/fe-62-evaluation/actions/runs/41433963650"
+      }
+    },
+    {
+      "label": "r3-b-buffer-deadline",
+      "commit": "a6fe0942f2bd992a40bdcd0d2dc11132a7d5c7be",
+      "first": 295,
+      "mean": 77.77,
+      "sd": 79.52860973188383,
+      "sun": 121.37285157087138,
+      "difference": -5.710000000000008,
+      "percent": -6.83996166746527,
+      "standard_errors": -0.8623123658607244,
+      "investigate": false,
+      "workflow": {
+        "conclusion": "success",
+        "databaseId": 41434125255,
+        "headSha": "ab356d6b683c7b0154be10bb98e9a7504f592d31",
+        "status": "completed",
+        "url": "https://github.com/xiaoyun-official/fe-62-evaluation/actions/runs/41434125255"
+      }
+    },
+    {
+      "label": "r3-c-squash-rescue",
+      "commit": "42f1a145d9f8c4f2adccce53ec8fc7544d3d5450",
+      "first": 296,
+      "mean": 89.74666666666667,
+      "sd": 88.12712668117095,
+      "sun": 122.72229237854702,
+      "difference": 11.976666666666674,
+      "percent": 15.400111439715412,
+      "standard_errors": 1.7475223988191355,
+      "investigate": false,
+      "workflow": {
+        "conclusion": "success",
+        "databaseId": 41434520746,
+        "headSha": "a9306ae378095a38bc38c13ffe3041f54fe9f4c2",
+        "status": "completed",
+        "url": "https://github.com/PvZ-Unofficial/fe-62-evaluation/actions/runs/41434520746"
+      }
+    },
+    {
+      "label": "r3-d-w10-2500",
+      "commit": "600d612d90380c578b73dcfcca6316b59d0231e8",
+      "first": 296,
+      "mean": 90.34,
+      "sd": 84.69412444626288,
+      "sun": 119.13327429709985,
+      "difference": 0.5933333333333337,
+      "percent": 0.6611201901649091,
+      "standard_errors": 0.08407977854676602,
+      "investigate": false,
+      "workflow": {
+        "conclusion": "success",
+        "databaseId": 41434664266,
+        "headSha": "4af84a7308d72bfadf1f1b6bea3380339790e40d",
+        "status": "completed",
+        "url": "https://github.com/xiaoyun-official/fe-62-evaluation/actions/runs/41434664266"
+      }
+    }
+  ],
+  "independent_new_roots": 1200
+}

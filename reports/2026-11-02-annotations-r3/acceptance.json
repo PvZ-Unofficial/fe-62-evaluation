@@ -1,0 +1,12 @@
+{
+  "lines": [
+    "R3_ACCEPT seed=149615588 now=1154233 core2=Some(300) core5=Some(300) core4=Some(300)",
+    "R3_ACTION seed=107393429 clock=2163740 card=Plant(PuffShroom) pos=(5, 4) reason=10",
+    "R3_ACCEPT seed=107393429 now=2165000 core2=Some(300) core5=Some(300) core4=Some(300)",
+    "R3_ACTION seed=130962212 clock=7221940 card=Plant(Squash) pos=(1, 1) reason=17",
+    "R3_ACCEPT seed=130962212 now=7225500 core2=Some(300) core5=Some(300) core4=Some(300)"
+  ],
+  "frozen_unit_passed": 210,
+  "ignored": 2,
+  "scope": "Three original annotated scenes with automatic revised rules enabled at the observed decision; no forced placement; not performance measurement"
+}

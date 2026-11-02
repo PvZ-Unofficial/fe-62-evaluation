@@ -1,0 +1,51 @@
+{
+  "baseline": "6606554",
+  "branch": "codex/annotations-r3-implementation",
+  "groups": [
+    {
+      "label": "r3-a-jack-offset",
+      "commit": "0ca2251",
+      "scope": "Native Puff offsets in existing forward Jack guard; no unopened fuse assumption",
+      "review": "All ten physical offsets tested with the existing geometry; rear rows and columns remain unaffected"
+    },
+    {
+      "label": "r3-b-buffer-deadline",
+      "commit": "a6fe094",
+      "scope": "Include existing full-health Puff cells in physical interception deadline",
+      "review": "Trajectory already includes occupant consumption and freezes; no extra planting or generic priority change"
+    },
+    {
+      "label": "r3-c-squash-rescue",
+      "commit": "42f1a14",
+      "scope": "Permit last Squash rescue after all Puff cells are behind the target, ahead of later row-five danger",
+      "review": "Preserves existing Squash commitments, legal landing and survival proof; ordinary row-five reservations retained"
+    },
+    {
+      "label": "r3-d-w10-2500",
+      "commit": "600d612",
+      "scope": "W10 Jalapeno activation2500 and consistent next-wave forecast",
+      "review": "W20 timing and other-wave targets unchanged; card readiness remains mandatory"
+    }
+  ],
+  "unit_tests": {
+    "each_group_passed": 210,
+    "ignored": 2,
+    "backend": "rsvz/pvz-emulator"
+  },
+  "cloud": {
+    "roots_per_group": 300,
+    "shards_per_group": 60,
+    "independent_nonoverlapping_seeds": true,
+    "accounts": [
+      "PvZ-Unofficial",
+      "xiaoyun-official"
+    ]
+  },
+  "retention_gate": {
+    "relative_drop": 0.15,
+    "combined_standard_errors": 2,
+    "also_review_concrete_failures": true
+  },
+  "no_modifier_replays": true,
+  "pending": "collect four cloud batches, audit outcomes, retain or isolate, archive results"
+}

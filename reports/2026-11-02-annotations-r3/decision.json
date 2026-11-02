@@ -1,0 +1,14 @@
+{
+  "retained_gameplay": "600d612d90380c578b73dcfcca6316b59d0231e8",
+  "retained_groups": [
+    "A",
+    "B",
+    "C",
+    "D"
+  ],
+  "final_mean_delta_percent": -0.9248766221897298,
+  "final_combined_standard_errors": -0.11533822857729716,
+  "final_net_sun_delta": -2.0657752368062035,
+  "reason": "No group crosses the predeclared material-regression gate; final combination is essentially unchanged in survival and all three annotated rule interventions passed native acceptance.",
+  "replays_generated": false
+}
