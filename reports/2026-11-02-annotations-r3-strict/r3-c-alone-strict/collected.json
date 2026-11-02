@@ -1,0 +1,25 @@
+{
+  "label": "r3-c-alone-strict",
+  "run": {
+    "conclusion": "success",
+    "databaseId": 41451948571,
+    "headSha": "fadac481a84cb9a56da9b914974dd98b5d89b829",
+    "status": "completed",
+    "url": "https://github.com/PvZ-Unofficial/fe-62-evaluation/actions/runs/41451948571"
+  },
+  "first": 297,
+  "mean": 93.05666666666667,
+  "sun": 120.44363649389261,
+  "causes": {
+    "gargantuar_smash:row2:kind42": 61,
+    "gargantuar_smash:row5:kind42": 87,
+    "home:row1:kind32": 65,
+    "home:row1:kind7": 30,
+    "home:row5:kind24": 5,
+    "home:row5:kind7": 7,
+    "home:row6:kind24": 3,
+    "home:row6:kind32": 32,
+    "jack_explosion:row3:kind42": 1,
+    "jack_explosion:row4:kind42": 9
+  }
+}

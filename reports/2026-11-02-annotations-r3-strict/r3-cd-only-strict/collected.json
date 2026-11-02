@@ -1,0 +1,26 @@
+{
+  "label": "r3-cd-only-strict",
+  "run": {
+    "conclusion": "success",
+    "databaseId": 41452282201,
+    "headSha": "c0f920adad604c3684e87ca5da1907ebb6e856f6",
+    "status": "completed",
+    "url": "https://github.com/xiaoyun-official/fe-62-evaluation/actions/runs/41452282201"
+  },
+  "first": 297,
+  "mean": 82.48333333333333,
+  "sun": 117.62982420691048,
+  "causes": {
+    "gargantuar_smash:row2:kind42": 70,
+    "gargantuar_smash:row5:kind42": 91,
+    "home:row1:kind32": 60,
+    "home:row1:kind7": 31,
+    "home:row5:kind24": 7,
+    "home:row5:kind7": 8,
+    "home:row6:kind24": 3,
+    "home:row6:kind32": 19,
+    "home:row6:kind7": 1,
+    "jack_explosion:row3:kind42": 1,
+    "jack_explosion:row4:kind42": 9
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "policy": "Retain only a non-decreasing measured mean versus the retained parent",
+  "retained_groups": [
+    "C"
+  ],
+  "rejected_groups": [
+    "A",
+    "B",
+    "D"
+  ],
+  "measured_commit": "27241aeee880e032716d9c8f2307059ba5ef7e3f",
+  "local_gameplay_commit": "bd310335259419f3a20354e60ea067e3e3f35bed",
+  "baseline": {
+    "commit": "6606554",
+    "mean": 91.18333333333334,
+    "first": 298,
+    "sun": 121.19904953390605
+  },
+  "measurements": [
+    {
+      "label": "r3-c-alone-strict",
+      "commit": "27241aeee880e032716d9c8f2307059ba5ef7e3f",
+      "first": 297,
+      "mean": 93.05666666666667,
+      "sun": 120.44363649389261,
+      "url": "https://github.com/PvZ-Unofficial/fe-62-evaluation/actions/runs/41451948571"
+    },
+    {
+      "label": "r3-cd-only-strict",
+      "commit": "e469681180c449db9101edc38f11ea79dc8886db",
+      "first": 297,
+      "mean": 82.48333333333333,
+      "sun": 117.62982420691048,
+      "url": "https://github.com/xiaoyun-official/fe-62-evaluation/actions/runs/41452282201"
+    }
+  ],
+  "prior_retention_decision_withdrawn": true,
+  "replays_generated": false
+}

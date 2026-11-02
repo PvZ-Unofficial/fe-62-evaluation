@@ -13,9 +13,10 @@
   "replays_generated": false,
   "superseded": true,
   "superseded_reason": "User requires no measured mean decline; previous material-regression exception withdrawn",
-  "current_retained_gameplay": "6606554",
-  "pending_remeasurements": [
-    "r3-c-alone-strict",
-    "r3-cd-only-strict"
-  ]
+  "current_retained_gameplay": "bd310335259419f3a20354e60ea067e3e3f35bed",
+  "pending_remeasurements": [],
+  "current_retained_groups": [
+    "C"
+  ],
+  "replacement_report": "../2026-11-02-annotations-r3-strict/decision.json"
 }
