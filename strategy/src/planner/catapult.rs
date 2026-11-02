@@ -12,8 +12,38 @@ fn walking_x(car: Zombie, at: i32, stop: i32) -> f32 {
     car.x - car.speed * (moving as f32 - slow as f32 * 0.5)
 }
 
+fn walking_x_plan(car: Zombie, at: i32, stop: i32, f: &Forecast) -> f32 {
+    let mut x = car.x;
+    let mut frozen = car.frozen;
+    let mut chilled = car.chilled;
+    for dt in 1..=at {
+        for e in f.events.iter().filter(|e| e.at == dt) {
+            if e.kind == prediction::EffectKind::Ice {
+                frozen = if chilled > 0 { 300 } else { 400 };
+                chilled = 2000;
+            }
+            if e.kind == prediction::EffectKind::Jalapeno && e.pos.0 == car.row {
+                frozen = 0;
+                chilled = 0;
+            }
+        }
+        frozen = (frozen - 1).max(0);
+        chilled = (chilled - 1).max(0);
+        if frozen == 0 && dt > stop {
+            x -= car.speed * if chilled > 0 { 0.5 } else { 1. };
+        }
+    }
+    x
+}
+
 impl Planner {
     pub fn bait_catapult(&mut self, f: &Forecast) {
+        if self.cherry_damage_required() {
+            return;
+        }
+        // Prepare the Puff alternative before the optional Cherry is waived.
+        let without = Self::without_ash(f, prediction::EffectKind::Cherry);
+        let f = &without;
         if !self.spare_puff() || self.scene.now < self.next_catapult_bait {
             return;
         }
@@ -40,7 +70,7 @@ impl Planner {
             if self.reserve_real_pad_window(f, car.id) || self.puff_reserved_for_blover(foot) {
                 return;
             }
-            for col in [2, 1] {
+            for col in [1, 2] {
                 let pos = (1, col);
                 if self.scene.main(pos).is_some() || !legal(sel(PuffShroom), pos) || !combat::jack_safe(pos, 100) {
                     continue;
@@ -55,20 +85,12 @@ impl Planner {
                 if !(ready_again..2500).contains(&contact) {
                     continue;
                 }
-                // This cheap travel test covers only a single unchanged cold
-                // interval. Reobserve after planned ice instead of guessing.
-                if f.events
-                    .iter()
-                    .any(|e| e.kind == prediction::EffectKind::Ice && e.at <= contact)
-                {
-                    continue;
-                }
                 let crush_edge = (pad.rect().right - 30 + 4) as f32;
                 let blocking_car = self.scene.row_zombies(1).copied().find(|z| {
                     self.scene.catapult_can_be_baited(*z)
                         && z.x >= (target_x + 102) as f32
-                        && walking_x(*z, contact, 0) <= crush_edge
-                        && walking_x(*z, contact, STOP) > crush_edge
+                        && walking_x_plan(*z, contact, 0, f) <= crush_edge
+                        && walking_x_plan(*z, contact, STOP, f) > crush_edge
                         && run_until(*z, &self.scene, f, None, contact, 2).death > contact
                 });
                 let Some(car) = blocking_car else { continue };
@@ -108,6 +130,7 @@ mod tests {
     #[test]
     fn catapult_bait_delay_does_not_extend_chill() {
         let car = Zombie {
+            age: 0,
             id: ZombieId::from_raw(65537),
             kind: Z::Catapult,
             row: 1,
