@@ -47,5 +47,10 @@
     "also_review_concrete_failures": true
   },
   "no_modifier_replays": true,
-  "pending": "collect four cloud batches, audit outcomes, retain or isolate, archive results"
+  "status": "complete",
+  "retained_gameplay": "600d612",
+  "frozen_commit_tests": {
+    "passed": 210,
+    "ignored": 2
+  }
 }
