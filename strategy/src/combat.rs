@@ -83,6 +83,14 @@ pub fn cherry_preserves_ladders(pos: Pos) -> bool {
         })
     })
 }
+pub fn opened_jack_hits(p: Pos, x: f32, y: f32) -> bool {
+    use rsvz::core::contact::{circle_hits_rect, grid_explosion_shape};
+    use rsvz::core::model::{ContactCircle, ContactRect, GridExplosionKind};
+    let center = grid_explosion_shape(GridExplosionKind::CherryBomb, grid(p)).circle;
+    let plant = ContactRect::new(center.x - 30, center.y - 40, center.x + 30, center.y + 40);
+    // Jack's native 120x120 sprite places its explosion at int(position)+60.
+    circle_hits_rect(ContactCircle::new(x as i32 + 60, y as i32 + 60, 90), plant)
+}
 pub fn jack_safe(p: Pos, horizon: i32) -> bool {
     let px = (p.1 * 80 - 40) as f32;
     rsvz::with_frame(|b| {
@@ -93,7 +101,7 @@ pub fn jack_safe(p: Pos, horizon: i32) -> bool {
             let x = z.x();
             if z.phase() == ZombiePhase::JackInTheBoxPopping {
                 // The open-box animation is visible. Never read the unopened fuse.
-                z.phase_counter() <= horizon + 2 && x >= px - 135. && x <= px + 130.
+                z.phase_counter() <= horizon + 2 && opened_jack_hits(p, x, z.y())
             } else {
                 // Unopened boxes need 110cs before exploding; ordinary 100cs ash finishes first.
                 let freeze = if z.is_frozen() {
@@ -163,9 +171,9 @@ pub fn doom_position(preferred: Pos, nine_only: bool) -> Option<Pos> {
 }
 pub fn doom_position_except(preferred: Pos, nine_only: bool, excluded: Option<Pos>) -> Option<Pos> {
     let candidates = [preferred, (3, 7), (4, 7), (3, 8), (4, 8), (3, 9), (4, 9)];
-    candidates.into_iter().find(|&p| {
-        Some(p) != excluded && (!nine_only || p.1 == 9) && candidate(sel(DoomShroom), p) && jack_safe(p, 100)
-    })
+    candidates
+        .into_iter()
+        .find(|&p| Some(p) != excluded && (!nine_only || p.1 == 9) && candidate(sel(DoomShroom), p))
 }
 pub fn doom(preferred: Pos, nine_only: bool) -> bool {
     if !ready(sel(DoomShroom)) {

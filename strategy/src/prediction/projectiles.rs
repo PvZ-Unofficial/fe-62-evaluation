@@ -147,35 +147,44 @@ impl Observation {
                 }
                 _ => continue,
             }
-            // Only the next concrete firing opportunity. Later shots are
-            // reobserved rather than repeated from a stale target and gun state.
-            if start >= stop {
-                continue;
-            }
-            let launch = start + active_time((0.545 - progress).max(0.) * 32. / 0.24, start, z.chilled) + 1;
-            if launch >= stop {
-                continue;
-            }
-            if naturally_killed_before(scene, z, launch) {
-                continue;
-            }
-            if let Some((tx, ty)) = aim(scene, row, extra, launch, x, f) {
-                let origin = x + 113.;
-                trace(
-                    Ball {
-                        row,
-                        x: origin as i32 as f32,
-                        vx: -(origin - tx as f32 - 20.).max(40.) / 120.,
-                        height: 0.,
-                        vz: (ty - (car.y - 44)) as f32 / 120. - 7.,
-                        az: 0.115,
-                        age: 0,
-                    },
-                    launch,
-                    shot,
-                    &mut out,
-                );
-                shot += 1;
+            // Native basketball damage destroys a Puff below zero HP: the fifth
+            // ball is decisive. Bound the forecast to
+            // that useful contact budget and the next planned state change.
+            for cycle in 0..5 {
+                if start >= stop || cycle > 0 && car.known_age + start >= 5700 {
+                    break;
+                }
+                let launch = start + active_time((0.545 - progress).max(0.) * 32. / 0.24, start, z.chilled) + 1;
+                if launch >= stop {
+                    break;
+                }
+                if naturally_killed_before(scene, z, launch) {
+                    break;
+                }
+                if let Some((tx, ty)) = aim(scene, row, extra, launch, x, f) {
+                    let origin = x + 113.;
+                    trace(
+                        Ball {
+                            row,
+                            x: origin as i32 as f32,
+                            vx: -(origin - tx as f32 - 20.).max(40.) / 120.,
+                            height: 0.,
+                            vz: (ty - (car.y - 44)) as f32 / 120. - 7.,
+                            az: 0.115,
+                            age: 0,
+                        },
+                        launch,
+                        shot,
+                        &mut out,
+                    );
+                    shot += 1;
+                }
+                start = if cycle == 0 && z.phase == ZombiePhase::CatapultLaunching && progress > 0. {
+                    cold + car.count.max(0)
+                } else {
+                    start + if cycle == 0 { 299 } else { 300 }
+                };
+                progress = 0.;
             }
         }
         out.sort_unstable_by_key(|e| (e.at, e.shot));
@@ -307,6 +316,7 @@ mod tests {
     #[test]
     fn basketball_and_bites_consume_the_same_plant_hp() {
         let giant = Zombie {
+            age: 0,
             id: ZombieId::from_raw(65537),
             kind: Z::GigaGargantuar,
             row: 1,
@@ -389,7 +399,8 @@ mod tests {
     }
     #[test]
     fn basketball_zero_hp_survival_and_fifth_hit_match_native() {
-        for cars in [4, 5] {
+        for cars in [1, 4, 5] {
+            let horizon = if cars == 1 { 1600 } else { 400 };
             let mut world = PeWorldOwner::new_reset(PeWorldConfig {
                 scene: pe_rs::SceneType::Fog,
                 initial_sun: 8000,
@@ -419,17 +430,34 @@ mod tests {
                 PeBackend::scope_backend(b, || {
                     let mut scene = Scene::default();
                     scene.sample(1, -99999);
+                    // These fixture cars were just spawned with their initial ammunition.
+                    for car in &mut scene.projectiles.cars {
+                        car.known_age = 1;
+                    }
                     let p = *scene.plants.iter().find(|p| p.id == puff).unwrap();
                     let mut pad = Pad::new((1, 2), PuffShroom);
                     pad.offset_x = p.rect.left - 130;
                     pad.order = p.id.index();
                     pad.replaces_occupant = true;
+                    pad.complete_outcome = true;
                     let z = *scene.zombies.iter().find(|z| z.id == giant).unwrap();
                     let f = Forecast::default();
-                    let out = simulate_until(z, &scene, &f, Some(pad), 400);
+                    let out = simulate_until(z, &scene, &f, Some(pad), horizon);
                     assert_eq!(out.trigger, NEVER);
                     if cars == 4 {
                         assert_eq!(out.impact, NEVER);
+                    } else if cars == 1 {
+                        assert!(
+                            (1200..1600).contains(&out.impact),
+                            "fifth shot {:?}; shots {:?}",
+                            out,
+                            scene
+                                .projectiles
+                                .events(&scene, 1, Some(pad), &f)
+                                .iter()
+                                .map(|e| (e.at, e.shot))
+                                .collect::<Vec<_>>()
+                        );
                     } else {
                         assert!(out.impact < 300, "predicted impact {}", out.impact);
                     }
@@ -440,7 +468,7 @@ mod tests {
                 })
             });
             let mut actual = None;
-            for dt in 1..=400 {
+            for dt in 1..=horizon {
                 world.update_world().unwrap();
                 let alive = world.with_backend(|b| {
                     b.plants()

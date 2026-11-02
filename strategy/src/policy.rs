@@ -1124,6 +1124,7 @@ mod tests {
     fn ice_test_zombie(row: i32, x: f32) -> Zombie {
         use rsvz::core::model::{ContactRect, ZombieId};
         Zombie {
+            age: 0,
             id: ZombieId::from_raw(65537 + row as u32),
             kind: Z::GigaGargantuar,
             row,
@@ -1448,6 +1449,7 @@ mod tests {
         use rsvz::core::model::{ContactRect, ZombieId};
         let mut scene = Scene::default();
         let z = Zombie {
+            age: 0,
             id: ZombieId::from_raw(65537),
             kind: Z::GigaGargantuar,
             row: 6,
@@ -1491,6 +1493,7 @@ mod tests {
         use rsvz::core::model::{ContactRect, ZombieId};
         let mut scene = Scene::default();
         let z = Zombie {
+            age: 0,
             id: ZombieId::from_raw(65537),
             kind: Z::GigaGargantuar,
             row: 6,

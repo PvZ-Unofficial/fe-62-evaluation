@@ -16,7 +16,11 @@ impl Planner {
             .copied()
             .filter(|&col| {
                 let pos = (z.row, col);
-                self.scene.main(pos).is_none_or(|p| p.kind == PuffShroom && p.hp < 300)
+                // A live Puff is already servicing this interception cell.
+                // Its consumption can reopen the cell before the next card;
+                // excluding full-health occupants invents a last-empty-cell
+                // deadline despite the buffers included in the trajectory.
+                self.scene.main(pos).is_none_or(|p| p.kind == PuffShroom)
                     && combat::candidate(sel(PuffShroom), pos)
                     && prediction::could_contact_pad(z, Pad::new(pos, PuffShroom))
             })
@@ -203,6 +207,7 @@ mod tests {
     #[test]
     fn first_ice_waits_for_old_football_output_band_only() {
         let z = Zombie {
+            age: 0,
             id: ZombieId::from_raw(65537),
             kind: Z::Football,
             row: 1,
@@ -261,6 +266,7 @@ mod tests {
             b.finish_card_selection().unwrap();
             PeBackend::scope_backend(b, || {
                 let z = Zombie {
+                    age: 0,
                     id: ZombieId::from_raw(65537),
                     kind: Z::GigaGargantuar,
                     row: 1,

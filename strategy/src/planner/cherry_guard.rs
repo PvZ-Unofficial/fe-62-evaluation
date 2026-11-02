@@ -37,7 +37,6 @@ impl Planner {
             return combat::jack_safe(pos, 100);
         }
         let planting = effect - 100;
-        let px = (pos.1 * 80 - 40) as f32;
         // An opened box that explodes before planting cannot destroy the future plant.
         // Do not invent a fuse for unopened boxes; revalidate when planting is due.
         rsvz::with_frame(|b| {
@@ -48,8 +47,7 @@ impl Planner {
                     && z.phase() == ZombiePhase::JackInTheBoxPopping
                     && z.phase_counter() >= planting
                     && z.phase_counter() <= effect + 2
-                    && z.x() >= px - 135.
-                    && z.x() <= px + 130.
+                    && combat::opened_jack_hits(pos, z.x(), z.y())
             })
         })
     }
@@ -183,7 +181,9 @@ impl Planner {
         let Some(event) = f
             .events
             .iter()
-            .filter(|e| !e.certain && e.kind == prediction::EffectKind::Cherry && e.at > 100 && e.at <= 2000)
+            .filter(|e| {
+                !e.certain && e.kind == prediction::EffectKind::Cherry && e.at > 100 && e.at <= prediction::HORIZON
+            })
             .min_by_key(|e| e.at)
             .copied()
         else {
@@ -387,14 +387,14 @@ mod tests {
             b.select_card(sel(CherryBomb).checked().unwrap()).unwrap();
             b.finish_card_selection().unwrap();
             let z = b.place_zombie(Z::JackInTheBox, grid((1, 5))).unwrap();
-            b.set_zombie_x(z, rsvz::core::model::I32RepresentableF32::new(375.84).unwrap())
+            b.set_zombie_x(z, rsvz::core::model::I32RepresentableF32::new(330.84).unwrap())
                 .unwrap();
         });
         let mut checked = false;
         for tick in 1..=5000 {
             world.with_backend(|b| {
                 for z in b.zombies().unwrap() {
-                    b.set_zombie_x(z, rsvz::core::model::I32RepresentableF32::new(375.84).unwrap())
+                    b.set_zombie_x(z, rsvz::core::model::I32RepresentableF32::new(330.84).unwrap())
                         .unwrap();
                 }
             });
@@ -407,6 +407,7 @@ mod tests {
                 }
                 PeBackend::scope_backend(b, || {
                     let z = Zombie {
+                        age: 0,
                         id: ZombieId::from_raw(65539),
                         kind: Z::GigaGargantuar,
                         row: 2,
@@ -433,7 +434,11 @@ mod tests {
                         planned: true,
                     });
                     let f = Forecast::default();
+                    // Place the opened Jack inside the actual circular overlap,
+                    // rather than the old overly wide horizontal approximation.
                     assert!(!p.cherry_site_available((2, 4), 100));
+                    assert!(combat::opened_jack_hits((1, 7), 381.45856, 50.));
+                    assert!(!combat::opened_jack_hits((1, 7), 379., 50.));
                     assert!(p.cherry_site_available((2, 7), 100));
                     let (later, pos) = p
                         .cherry_recovery_plan(&f, 100, false, Some((2, 7)))
@@ -467,12 +472,13 @@ mod tests {
             b.finish_card_selection().unwrap();
             PeBackend::scope_backend(b, || {
                 let z = Zombie {
+                    age: 0,
                     id: ZombieId::from_raw(65537),
                     kind: Z::GigaGargantuar,
                     row: 2,
                     wave: 9,
                     carried: false,
-                    x: 400.,
+                    x: 460.,
                     hp: 2640,
                     armor: 0,
                     phase: ZombiePhase::ZombieNormal,
@@ -482,7 +488,7 @@ mod tests {
                     chilled: 0,
                     object: false,
                     eating: false,
-                    rect: ContactRect::new(383, 97, 508, 251),
+                    rect: ContactRect::new(443, 97, 568, 251),
                 };
                 let mut scene = Scene::fixture(vec![z]);
                 scene.plants.push(prediction::Plant {
@@ -503,7 +509,7 @@ mod tests {
                 assert!(state.debts.iter().any(|d| d.id == z.id && d.planned));
                 scene.zombies[0].hp = 1000;
                 let mut f = Forecast::default();
-                f.add(1, prediction::EffectKind::Cherry, (2, 4), true);
+                f.add(1, prediction::EffectKind::Cherry, (2, 5), true);
                 cherry::select(&scene, &f, 1000, [true; 12], false, &mut state);
                 assert!(!state.required(z.id));
                 scene.zombies[0].hp = 2640;
@@ -537,6 +543,7 @@ mod tests {
             b.finish_card_selection().unwrap();
             PeBackend::scope_backend(b, || {
                 let mut z = Zombie {
+                    age: 0,
                     id: ZombieId::from_raw(65537),
                     kind: Z::GigaGargantuar,
                     row: 1,
